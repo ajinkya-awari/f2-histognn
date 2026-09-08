@@ -1,0 +1,8 @@
+# Source-only synthetic validation lock (Python 3.11).
+numpy==2.4.6
+torch==2.12.1
+torch-geometric==2.7.0
+pytest==9.0.3
+
+# Real-slide readers, pathology datasets, tracking clients, and model-download
+# packages are intentionally excluded until their separate approval gates pass.

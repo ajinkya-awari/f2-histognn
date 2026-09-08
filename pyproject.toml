@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "f2-histognn"
+version = "0.1.0"
+description = "Synthetic-first nuclei-graph contracts for an exploratory LUAD/LUSC benchmark"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11,<3.15"
+dependencies = [
+    "numpy==2.4.6",
+    "torch==2.12.1",
+    "torch-geometric==2.7.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest==9.0.3"]
+
+[tool.setuptools]
+packages = ["data", "models", "explanations", "training"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
