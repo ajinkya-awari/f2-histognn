@@ -18,6 +18,7 @@ from data.gdc import (
 from data.evidence import EvidenceError, build_stage_evidence, write_evidence
 from data.hovernet import HoverNetOutputError, load_hovernet_instances
 from data.tiles import TileSelectionError, select_tissue_tile_origins
+from scripts.kaggle_real_data_pilot import _dependency_lock_hash
 
 
 def gdc_hit(*, project="TCGA-LUAD", case="TCGA-AA-0001", file_id="file-1"):
@@ -386,3 +387,12 @@ def test_tissue_tile_selection_rejects_blank_thumbnail_and_excess_count():
     tissue = np.full((2, 2, 3), [120, 40, 80], dtype=np.uint8)
     with pytest.raises(TileSelectionError, match="eligible"):
         select_tissue_tile_origins(tissue, slide_size=(512, 512), tile_size=256, count=5)
+
+
+def test_real_data_dependency_hash_covers_both_lock_files(tmp_path):
+    (tmp_path / "requirements.txt").write_bytes(b"a\n")
+    (tmp_path / "requirements-kaggle-real-data.txt").write_bytes(b"b\n")
+
+    assert _dependency_lock_hash(tmp_path) == (
+        "9e0cc975f5ed68a1126c908b6144b3b06ad87479a7063acc880a44930cf9a9c7"
+    )

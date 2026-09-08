@@ -57,6 +57,14 @@ def _digest(path: Path, algorithm: str) -> str:
     return hasher.hexdigest()
 
 
+def _dependency_lock_hash(root: Path) -> str:
+    hasher = hashlib.sha256()
+    for name in ("requirements.txt", "requirements-kaggle-real-data.txt"):
+        hasher.update(name.encode("utf-8") + b"\0")
+        hasher.update((root / name).read_bytes())
+    return hasher.hexdigest()
+
+
 def _run(command: list[str], *, cwd: Path | None = None) -> None:
     subprocess.run(command, cwd=cwd, check=True)
 
@@ -329,7 +337,7 @@ def main() -> int:
             "hovernet_revision": HOVERNET_REVISION,
             "hovernet_compatibility_patch_sha256": patch_hash,
             "checkpoint_sha256": CHECKPOINT_SHA256,
-            "dependency_lock_sha256": _digest(root / "requirements-kaggle-real-data.txt", "sha256"),
+            "dependency_lock_sha256": _dependency_lock_hash(root),
             "source_revision": source_revision,
             "python": sys.version.split()[0],
             "torch": torch.__version__,
