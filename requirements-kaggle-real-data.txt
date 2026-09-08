@@ -1,0 +1,7 @@
+# Additive lock for the private real-data Kaggle stages.
+# Install after requirements.txt in an isolated Kaggle session.
+docopt==0.6.2
+gdown==5.2.0
+openslide-bin==4.0.0.10
+openslide-python==1.4.2
+

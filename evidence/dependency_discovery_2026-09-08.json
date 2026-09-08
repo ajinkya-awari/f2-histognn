@@ -1,0 +1,25 @@
+{
+  "provenance": {
+    "case_count": 6,
+    "checkpoint_byte_size": 150996114,
+    "checkpoint_sha256": "4a1463467737f81203a0513f794276cbcbbd6bb470969584f314167c6acef081",
+    "class_counts": {
+      "LUAD": 3,
+      "LUSC": 3
+    },
+    "dependency_lock_sha256": "c91bd10a23ef66ce376f2c45361c04794575e174e4ae4567f325f57132ca9f75",
+    "downloaded_slide_bytes": 0,
+    "gdc_source": "https://api.gdc.cancer.gov/files",
+    "hovernet_repository": "https://github.com/vqdang/hover_net.git",
+    "hovernet_revision": "67e2ce5e3f1a64a2ece77ad1c24233653a9e0901",
+    "manifest_sha256": "446011ea98623734b5d4a39bf765d2feb603a2b003d2d3f17768171785da89d8",
+    "next_action": "pin observed checkpoint SHA-256 before slide acquisition",
+    "record_count": 6,
+    "selection_seed": 17
+  },
+  "schema_version": "1.0",
+  "stage": "dependency_discovery",
+  "status": "blocked",
+  "timestamp_utc": "2026-09-08T15:14:46Z"
+}
+
