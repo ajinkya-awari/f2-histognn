@@ -186,7 +186,7 @@ def write_hovernet(tmp_path, instances):
     return path
 
 
-def test_hovernet_adapter_drops_background_and_preserves_five_probabilities(tmp_path):
+def test_hovernet_adapter_conditions_on_five_non_background_probabilities(tmp_path):
     path = write_hovernet(
         tmp_path,
         {
@@ -207,10 +207,30 @@ def test_hovernet_adapter_drops_background_and_preserves_five_probabilities(tmp_
 
     assert record.identifiers == ("nucleus-1", "nucleus-2")
     assert record.features.shape == (2, 7)
-    assert record.type_prob.tolist() == [
-        [0.60, 0.10, 0.10, 0.05, 0.10],
-        [0.10, 0.10, 0.10, 0.10, 0.50],
-    ]
+    np.testing.assert_allclose(
+        record.type_prob,
+        [
+            np.array([0.60, 0.10, 0.10, 0.05, 0.10]) / 0.95,
+            np.array([0.10, 0.10, 0.10, 0.10, 0.50]) / 0.90,
+        ],
+    )
+
+
+def test_hovernet_adapter_accepts_segmented_nucleus_with_background_hard_type(tmp_path):
+    path = write_hovernet(
+        tmp_path,
+        {
+            "nucleus-1": {
+                "centroid": [10.0, 20.0],
+                "type": 0,
+                "probs": [0.55, 0.20, 0.10, 0.05, 0.05, 0.05],
+            }
+        },
+    )
+
+    record = load_hovernet_instances(path)
+
+    np.testing.assert_allclose(record.type_prob, [[4 / 9, 2 / 9, 1 / 9, 1 / 9, 1 / 9]])
 
 
 def test_hovernet_adapter_accepts_the_native_nuc_wrapper(tmp_path):
@@ -237,7 +257,7 @@ def test_hovernet_adapter_accepts_the_native_nuc_wrapper(tmp_path):
 @pytest.mark.parametrize(
     ("instance", "message"),
     [
-        ({"centroid": [1, 2], "type": 0, "probs": [1, 0, 0, 0, 0, 0]}, "background"),
+        ({"centroid": [1, 2], "type": 0, "probs": [1, 0, 0, 0, 0, 0]}, "non-background"),
         ({"centroid": [1, 2], "type": 1}, "probs"),
         ({"centroid": [1, 2], "type": 1, "probs": [0, 1, 0, 0, 0]}, "six"),
         ({"centroid": [1, 2], "type": 1, "probs": [0, 0.5, 0, 0, 0, 0]}, "sum"),

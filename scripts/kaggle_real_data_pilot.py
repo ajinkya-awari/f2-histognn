@@ -398,6 +398,7 @@ def main() -> int:
             "tile_count": tile_count,
             "hovernet_revision": HOVERNET_REVISION,
             "hovernet_compatibility_patch_sha256": patch_hash,
+            "type_probability_transform": "drop_background_then_renormalize_non_background",
             "checkpoint_sha256": CHECKPOINT_SHA256,
             "dependency_lock_sha256": _dependency_lock_hash(root),
             "source_revision": source_revision,

@@ -52,7 +52,7 @@ Or run `scripts/verify_synthetic.ps1` on PowerShell / `scripts/verify_synthetic.
 
 Local planning-tree verification on 2026-09-07: **62 passed, 3 warnings, exit 0** in 13.17 seconds. Final standalone public-export verification on 2026-09-08: **62 passed, 3 warnings, exit 0** in 19.15 seconds. Both used Python 3.11.9, NumPy 2.4.6, PyTorch 2.12.1+cpu, PyTorch Geometric 2.7.0, and pytest 9.0.3. The warnings are one PyG distributed deprecation and two `torch.jit.script` deprecations. These are synthetic contract tests, not histology results.
 
-Draft real-data-gate verification on 2026-09-09: **109 passed, 3 warnings, exit 0** in 15.53 seconds; compile and diff checks also exited 0, and every notebook parsed as JSON in the preceding consolidated pass. The expanded count includes offline regression tests for GDC eligibility, sanitized evidence, bounded downloads, HoVer-Net probability preservation, and runtime/source-attestation gates. It is not real-data model-performance evidence.
+Draft real-data-gate verification on 2026-09-09: **110 passed, 3 warnings, exit 0** in 17.39 seconds; compile also exited 0, and every notebook parsed as JSON in the preceding consolidated pass. The expanded count includes offline regression tests for GDC eligibility, sanitized evidence, bounded downloads, HoVer-Net probability conditioning, and runtime/source-attestation gates. It is not real-data model-performance evidence.
 
 ## Kaggle execution
 

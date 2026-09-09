@@ -39,9 +39,7 @@ def _instance_values(identifier: str, instance: Any) -> tuple[list[float], list[
         raise HoverNetOutputError(f"instance {identifier} must be a mapping")
     nucleus_type = instance.get("type")
     if type(nucleus_type) is not int or not 0 <= nucleus_type <= 5:
-        raise HoverNetOutputError(f"instance {identifier} type must be an integer from 1 to 5")
-    if nucleus_type == 0:
-        raise HoverNetOutputError(f"instance {identifier} is a background instance")
+        raise HoverNetOutputError(f"instance {identifier} type must be an integer from 0 to 5")
 
     centroid = instance.get("centroid")
     if not isinstance(centroid, (list, tuple)) or len(centroid) != 2:
@@ -61,7 +59,13 @@ def _instance_values(identifier: str, instance: Any) -> tuple[list[float], list[
         raise HoverNetOutputError(f"instance {identifier} probs must be finite values in [0, 1]")
     if not np.isclose(float(array.sum()), 1.0, atol=1e-6):
         raise HoverNetOutputError(f"instance {identifier} probs must sum to 1")
-    return list(centroid), array[1:].tolist()
+    non_background = array[1:]
+    non_background_total = float(non_background.sum())
+    if np.isclose(non_background_total, 0.0, atol=1e-12):
+        raise HoverNetOutputError(
+            f"instance {identifier} probs must assign positive non-background probability"
+        )
+    return list(centroid), (non_background / non_background_total).tolist()
 
 
 def load_hovernet_instances(

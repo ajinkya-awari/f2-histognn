@@ -55,11 +55,15 @@ For every accepted nucleus, the adapter emits:
 2. probabilities for exactly five non-background PanNuke classes:
    neoplastic, inflammatory, connective, dead, and non-neoplastic epithelial.
 
-Background is excluded rather than encoded as a sixth feature. Records with
-missing/non-finite coordinates, missing probabilities, values outside `[0, 1]`,
-or a probability width other than five fail closed. Coordinates are normalized
-within each graph by the existing project contract. Spatial graph construction,
-sampling, and batching reuse the deterministic tested implementation.
+Background is excluded rather than encoded as a sixth feature. The remaining
+five values are renormalized to their conditional distribution given a
+non-background class. A segmented nucleus whose type-head argmax is background
+is retained only when its non-background probability mass is positive; zero
+non-background mass fails closed. Records with missing/non-finite coordinates,
+missing probabilities, values outside `[0, 1]`, or an incompatible probability
+width fail closed. Coordinates are normalized within each graph by the existing
+project contract. Spatial graph construction, sampling, and batching reuse the
+deterministic tested implementation.
 
 ## Execution stages
 
