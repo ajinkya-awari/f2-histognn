@@ -27,8 +27,10 @@ private ephemeral Kaggle storage and is not redistributed.
 1. Stage the reviewed repository allowlist into `/kaggle/working/07-f2-histognn`.
 2. Configure a private notebook with internet and GPU enabled, no attached
    datasets, models, competitions, or kernels.
-3. Install only the additive `requirements-kaggle-real-data.txt`. Do not install
-   the source-only CPU lock over Kaggle's CUDA-enabled PyTorch stack.
+3. Install `requirements-kaggle-torch-p100.txt`, then the additive
+   `requirements-kaggle-real-data.txt`. The P100 lock uses the official PyTorch
+   2.7.1 CUDA 12.6 wheel index, whose x86-64 build supports `sm_60`. Do not
+   install the source-only CPU lock over this CUDA stack.
 4. Run `scripts/kaggle_real_data_pilot.py` once.
 5. Poll to `COMPLETE`, `ERROR`, `CANCELLED`, missing status, or the bounded
    timeout. The pre-push check must confirm `is_private: true`; the generated

@@ -67,7 +67,11 @@ def _digest(path: Path, algorithm: str) -> str:
 
 def _dependency_lock_hash(root: Path) -> str:
     hasher = hashlib.sha256()
-    for name in ("requirements.txt", "requirements-kaggle-real-data.txt"):
+    for name in (
+        "requirements.txt",
+        "requirements-kaggle-torch-p100.txt",
+        "requirements-kaggle-real-data.txt",
+    ):
         hasher.update(name.encode("utf-8") + b"\0")
         hasher.update((root / name).read_bytes())
     return hasher.hexdigest()
@@ -116,6 +120,21 @@ def _bounded_copy(source, destination, *, expected_bytes: int, remaining_bytes: 
     if copied != expected_bytes:
         raise RuntimeError("downloaded slide byte size mismatch")
     return copied
+
+
+def _require_cuda_execution() -> str:
+    """Prove that the visible CUDA device can execute this PyTorch wheel."""
+
+    if not torch.cuda.is_available() or torch.cuda.device_count() < 1:
+        raise RuntimeError("CUDA GPU unavailable")
+    try:
+        value = torch.ones(1, dtype=torch.float32, device="cuda")
+        if float((value + 1).cpu().item()) != 2.0:
+            raise RuntimeError("CUDA smoke calculation returned an invalid value")
+        torch.cuda.synchronize()
+    except Exception as exc:
+        raise RuntimeError("visible CUDA GPU cannot execute the installed PyTorch wheel") from exc
+    return torch.cuda.get_device_name(0)
 
 
 def _prepare_hovernet(private: Path) -> tuple[Path, Path, str]:
@@ -332,12 +351,14 @@ def main() -> int:
     evidence_dir.mkdir(parents=True, exist_ok=True)
     private.mkdir(mode=0o700)
     timestamp = _timestamp()
-    if not torch.cuda.is_available() or torch.cuda.device_count() < 1:
+    try:
+        device_name = _require_cuda_execution()
+    except RuntimeError as exc:
         evidence = build_stage_evidence(
             stage="real_data_graph_smoke",
             status="blocked",
             timestamp_utc=timestamp,
-            provenance={"reason": "CUDA GPU unavailable", "downloaded_slide_bytes": 0},
+            provenance={"reason": str(exc), "downloaded_slide_bytes": 0},
         )
         write_evidence(evidence_dir / f"real_data_graph_smoke_{timestamp.replace(':', '')}.json", evidence)
         print(json.dumps(evidence, sort_keys=True))
@@ -384,7 +405,8 @@ def main() -> int:
             "torch": torch.__version__,
             "torch_geometric": importlib.metadata.version("torch-geometric"),
             "cuda_runtime": torch.version.cuda,
-            "device": {"type": "cuda", "name": torch.cuda.get_device_name(0)},
+            "device": {"type": "cuda", "name": device_name},
+            "cuda_arch_list": torch.cuda.get_arch_list(),
             "runtime_seconds": round(time.monotonic() - started, 3),
             **smoke,
             "benchmark_metrics_emitted": False,

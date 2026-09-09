@@ -24,6 +24,7 @@ from data.hovernet_patch import patch_hovernet_checkout
 from scripts.kaggle_real_data_pilot import (
     _bounded_copy,
     _dependency_lock_hash,
+    _require_cuda_execution,
     _require_kaggle_private_runtime,
 )
 
@@ -505,13 +506,35 @@ def test_tissue_tile_selection_rejects_blank_thumbnail_and_excess_count():
         select_tissue_tile_origins(tissue, slide_size=(512, 512), tile_size=256, count=5)
 
 
-def test_real_data_dependency_hash_covers_both_lock_files(tmp_path):
+def test_real_data_dependency_hash_covers_all_lock_files(tmp_path):
     (tmp_path / "requirements.txt").write_bytes(b"a\n")
+    torch_lock = tmp_path / "requirements-kaggle-torch-p100.txt"
+    torch_lock.write_bytes(b"torch\n")
     (tmp_path / "requirements-kaggle-real-data.txt").write_bytes(b"b\n")
 
-    assert _dependency_lock_hash(tmp_path) == (
-        "9e0cc975f5ed68a1126c908b6144b3b06ad87479a7063acc880a44930cf9a9c7"
-    )
+    first = _dependency_lock_hash(tmp_path)
+    torch_lock.write_bytes(b"changed\n")
+    assert _dependency_lock_hash(tmp_path) != first
+
+
+def test_cuda_execution_gate_proves_an_actual_tensor_operation(monkeypatch):
+    class FakeTensor:
+        def __add__(self, value):
+            return self
+
+        def cpu(self):
+            return self
+
+        def item(self):
+            return 2.0
+
+    monkeypatch.setattr("scripts.kaggle_real_data_pilot.torch.cuda.is_available", lambda: True)
+    monkeypatch.setattr("scripts.kaggle_real_data_pilot.torch.cuda.device_count", lambda: 1)
+    monkeypatch.setattr("scripts.kaggle_real_data_pilot.torch.cuda.get_device_name", lambda index: "P100")
+    monkeypatch.setattr("scripts.kaggle_real_data_pilot.torch.cuda.synchronize", lambda: None)
+    monkeypatch.setattr("scripts.kaggle_real_data_pilot.torch.ones", lambda *args, **kwargs: FakeTensor())
+
+    assert _require_cuda_execution() == "P100"
 
 
 def test_bounded_copy_stops_before_exceeding_declared_or_total_limit(tmp_path):
