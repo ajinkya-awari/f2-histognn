@@ -4,7 +4,7 @@ Synthetic-first, leakage-aware nuclei-graph contracts for an exploratory LUAD/LU
 
 > **Verified boundary:** implementation and synthetic/offline tests pass locally and on private Kaggle. Private Kaggle version 9 also completed the bounded six-case real-data nuclei/graph smoke. No trained real-data benchmark, clinical result, released model checkpoint, or performance metric is claimed.
 
-> **Real-data work:** the TCGA LUAD/LUSC route is approved and tracked in [issue #1](https://github.com/ajinkya-awari/f2-histognn/issues/1). A corrected metadata-only preflight and the prespecified nuclei/graph smoke passed. The feature branch and pull request remain draft while a larger case-disjoint benchmark is prespecified. See the [protocol](docs/REAL_DATA_BENCHMARK_PROTOCOL.md) and [sanitized smoke evidence](evidence/real_data_graph_smoke_2026-09-09T115728Z.json).
+> **Real-data work:** the TCGA LUAD/LUSC route is approved and tracked in [issue #1](https://github.com/ajinkya-awari/f2-histognn/issues/1). A corrected metadata-only preflight and the prespecified nuclei/graph smoke passed. The 100-case [case-disjoint benchmark](docs/CASE_DISJOINT_BENCHMARK_SPEC.md) is frozen and locally validated but has not yet run. The feature branch and pull request remain draft. See the [sanitized smoke evidence](evidence/real_data_graph_smoke_2026-09-09T115728Z.json).
 
 ## Problem
 
@@ -52,7 +52,7 @@ Or run `scripts/verify_synthetic.ps1` on PowerShell / `scripts/verify_synthetic.
 
 Local planning-tree verification on 2026-09-07: **62 passed, 3 warnings, exit 0** in 13.17 seconds. Final standalone public-export verification on 2026-09-08: **62 passed, 3 warnings, exit 0** in 19.15 seconds. Both used Python 3.11.9, NumPy 2.4.6, PyTorch 2.12.1+cpu, PyTorch Geometric 2.7.0, and pytest 9.0.3. The warnings are one PyG distributed deprecation and two `torch.jit.script` deprecations. These are synthetic contract tests, not histology results.
 
-Draft real-data-gate verification on 2026-09-09: **110 passed, 3 warnings, exit 0** in 19.94 seconds; compile also exited 0, and every notebook parsed as JSON in the preceding consolidated pass. The expanded count includes offline regression tests for GDC eligibility, sanitized evidence, bounded downloads, HoVer-Net probability conditioning, and runtime/source-attestation gates. It is not real-data model-performance evidence.
+Draft benchmark-branch verification on 2026-09-09: **130 passed, 3 warnings, exit 0** in 16.44 seconds; compile also exited 0. The expanded count includes offline regression tests for GDC eligibility, sanitized evidence, streamed bounded downloads, HoVer-Net probability conditioning, case-disjoint splitting, case-level metrics, bootstrap intervals, best-checkpoint restoration, and the frozen run matrix. It is not real-data model-performance evidence.
 
 ## Kaggle execution
 

@@ -11,7 +11,7 @@ Expand the reviewed source bundle into `/kaggle/working/07-f2-histognn`.
 - `data/`, `models/`, `explanations/`, `training/`, and `tests/`
 - `README.md`, `DESIGN.md`, `requirements.txt`, and `pyproject.toml`
 - `notebooks/kaggle_run_07-f2-histognn.ipynb`
-- For the separately approved real-data stages only: `requirements-kaggle-torch-p100.txt`, `requirements-kaggle-real-data.txt`, `data/hovernet_patch.py`, `scripts/query_gdc_manifest.py`, `scripts/kaggle_real_data_discovery.py`, `scripts/kaggle_real_data_pilot.py`, and the corresponding discovery/pilot notebooks.
+- For the separately approved real-data stages only: `requirements-kaggle-torch-p100.txt`, `requirements-kaggle-real-data.txt`, the reviewed real-data modules, `scripts/query_gdc_manifest.py`, `scripts/kaggle_real_data_discovery.py`, `scripts/kaggle_real_data_pilot.py`, `scripts/kaggle_case_disjoint_benchmark.py`, and the corresponding private-execution notebooks.
 
 ## Exclude
 
@@ -39,3 +39,5 @@ Version 1 on 2026-09-07 failed before dependency installation because a Windows-
 Version 2 on 2026-09-08 used POSIX-normalized ZIP members and completed the source-only synthetic pipeline: 62 passed, 3 warnings, 15.01 seconds on CPU. Archive SHA-256: `a692c091382d12be101ac2b2762821778009df804f7afc3c7a3f3b9cbcb8d71c`. Verified source-tree SHA-256: `272953acc4866fc39448fc7807f8565a0fbf12635e484726fe3809112d078344`.
 
 The real-data protocol is a separate private execution boundary. It may enable GPU and internet only for the reviewed GDC/HoVer-Net workflow. All raw slides, weights, tiles, and nuclei outputs must stay under `/kaggle/temp/project07-private`; only sanitized aggregate JSON may be written under `/kaggle/working/project07-evidence`.
+
+The accepted 100-case benchmark specification is implemented only by `notebooks/kaggle_case_disjoint_benchmark.ipynb`. Its staging metadata must remain private with GPU and internet enabled and with empty dataset, model, competition, and kernel sources. The runner must complete all 12 frozen model/seed runs before writing any of the 12 per-run metric evidence records.

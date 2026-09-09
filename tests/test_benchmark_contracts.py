@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 import hashlib
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -413,3 +414,16 @@ def test_kaggle_benchmark_entrypoint_freezes_approved_cohort_and_safety_caps():
     assert (TRAIN_PER_CLASS, VALIDATION_PER_CLASS, TEST_PER_CLASS) == (30, 10, 10)
     assert MAX_INDIVIDUAL_SLIDE_BYTES == 2 * 1024**3
     assert MAX_TOTAL_SLIDE_BYTES == 20 * 1024**3
+
+
+def test_benchmark_notebook_is_unexecuted_and_calls_only_the_frozen_runner():
+    path = Path("notebooks/kaggle_case_disjoint_benchmark.ipynb")
+    notebook = json.loads(path.read_text(encoding="utf-8"))
+
+    assert len(notebook["cells"]) == 3
+    code = [cell for cell in notebook["cells"] if cell["cell_type"] == "code"]
+    assert all(cell["execution_count"] is None and cell["outputs"] == [] for cell in code)
+    source = "\n".join("".join(cell["source"]) for cell in code)
+    assert "scripts/kaggle_case_disjoint_benchmark.py" in source
+    assert "kaggle_real_data_pilot.py" not in source
+    assert "KAGGLE_KEY" not in source

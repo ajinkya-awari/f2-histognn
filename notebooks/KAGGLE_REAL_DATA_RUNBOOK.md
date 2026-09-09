@@ -72,3 +72,13 @@ Kernel version 9 completed on 2026-09-09 from source revision
 It records six cases, 24 tiles/graphs, 677 sampled nuclei, verified four-model
 forward shapes, checksum-verified inputs, Tesla P100 execution, and zero
 benchmark metrics or published raw artifacts.
+
+## Frozen 100-case benchmark
+
+The owner accepted `docs/CASE_DISJOINT_BENCHMARK_SPEC.md`. Execute
+`notebooks/kaggle_case_disjoint_benchmark.ipynb` only from an exact reviewed
+source archive after offline tests and release scans pass. The runner streams
+100 checksum-verified slides through private temporary storage, creates four
+graphs per case, enforces the 60/20/20 case-disjoint split, restores the lowest
+validation-loss checkpoint, and evaluates the test cases once for each of four
+models and three seeds. It writes no metric evidence unless all 12 runs finish.
