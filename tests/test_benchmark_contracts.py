@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import numpy as np
 import pytest
 
 from data.benchmark import (
@@ -11,6 +12,12 @@ from data.benchmark import (
     stratified_case_split,
 )
 from data.gdc import GDCSlideRecord
+from training.evaluation import (
+    BenchmarkEvaluationError,
+    aggregate_case_probabilities,
+    binary_case_metrics,
+    stratified_bootstrap_intervals,
+)
 
 
 def benchmark_records(per_class: int = 60) -> tuple[GDCSlideRecord, ...]:
@@ -118,3 +125,77 @@ def test_benchmark_selection_and_split_fail_closed_on_invalid_records():
             validation_per_class=1,
             test_per_class=1,
         )
+
+
+def test_case_aggregation_averages_exactly_four_tiles_and_preserves_labels():
+    probabilities = np.array(
+        [[0.9, 0.1], [0.8, 0.2], [0.7, 0.3], [0.6, 0.4],
+         [0.4, 0.6], [0.3, 0.7], [0.2, 0.8], [0.1, 0.9]],
+        dtype=np.float64,
+    )
+    result = aggregate_case_probabilities(
+        np.log(probabilities),
+        case_keys=["case-a"] * 4 + ["case-b"] * 4,
+        labels=[0] * 4 + [1] * 4,
+        tiles_per_case=4,
+    )
+
+    assert result.case_keys == ("case-a", "case-b")
+    assert result.labels.tolist() == [0, 1]
+    np.testing.assert_allclose(result.probabilities, [[0.75, 0.25], [0.25, 0.75]])
+
+
+def test_case_metrics_have_frozen_binary_definitions_and_lusc_positive_class():
+    probabilities = np.array([[0.9, 0.1], [0.6, 0.4], [0.65, 0.35], [0.2, 0.8]])
+    metrics = binary_case_metrics(probabilities, np.array([0, 0, 1, 1]))
+
+    assert metrics["accuracy"] == pytest.approx(0.75)
+    assert metrics["macro_f1"] == pytest.approx((0.8 + 2 / 3) / 2)
+    assert metrics["auroc"] == pytest.approx(0.75)
+    assert metrics["auprc"] == pytest.approx((1.0 + 2 / 3) / 2)
+    assert metrics["positive_class"] == "LUSC"
+
+
+def test_case_metrics_are_invariant_to_input_order_when_scores_tie():
+    probabilities = np.array([[0.2, 0.8], [0.5, 0.5], [0.5, 0.5], [0.8, 0.2]])
+    labels = np.array([1, 1, 0, 0])
+
+    first = binary_case_metrics(probabilities, labels)
+    order = np.array([0, 2, 1, 3])
+    second = binary_case_metrics(probabilities[order], labels[order])
+
+    assert first == second
+
+
+def test_stratified_bootstrap_is_deterministic_and_bounded():
+    probabilities = np.array([[0.9, 0.1], [0.6, 0.4], [0.65, 0.35], [0.2, 0.8]])
+    labels = np.array([0, 0, 1, 1])
+
+    first = stratified_bootstrap_intervals(probabilities, labels, resamples=200, seed=17)
+    second = stratified_bootstrap_intervals(probabilities, labels, resamples=200, seed=17)
+
+    assert first == second
+    assert set(first) == {"accuracy", "macro_f1", "auroc", "auprc"}
+    assert all(0.0 <= interval[0] <= interval[1] <= 1.0 for interval in first.values())
+
+
+@pytest.mark.parametrize(
+    ("logits", "case_keys", "labels", "message"),
+    [
+        (np.zeros((3, 2)), ["a"] * 3, [0] * 3, "exactly 4"),
+        (np.zeros((4, 2)), ["a"] * 4, [0, 0, 0, 1], "conflicting"),
+        (np.array([[np.nan, 0.0]] * 4), ["a"] * 4, [0] * 4, "finite"),
+    ],
+)
+def test_case_aggregation_rejects_invalid_tile_evidence(logits, case_keys, labels, message):
+    with pytest.raises(BenchmarkEvaluationError, match=message):
+        aggregate_case_probabilities(
+            logits, case_keys=case_keys, labels=labels, tiles_per_case=4
+        )
+
+
+def test_case_metrics_reject_single_class_and_invalid_probability_rows():
+    with pytest.raises(BenchmarkEvaluationError, match="both classes"):
+        binary_case_metrics(np.array([[0.8, 0.2], [0.7, 0.3]]), np.array([0, 0]))
+    with pytest.raises(BenchmarkEvaluationError, match="sum to 1"):
+        binary_case_metrics(np.array([[0.8, 0.3], [0.2, 0.8]]), np.array([0, 1]))
