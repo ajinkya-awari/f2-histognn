@@ -1,0 +1,27 @@
+{
+  "provenance": {
+    "case_count": 6,
+    "class_counts": {
+      "LUAD": 3,
+      "LUSC": 3
+    },
+    "downloaded_slide_bytes": 0,
+    "eligible_case_count": 956,
+    "eligible_class_record_counts": {
+      "LUAD": 540,
+      "LUSC": 512
+    },
+    "eligible_manifest_sha256": "b17592d7647c5dc57cbae1d774ca6060f47610d184b8a47f797104142892a78d",
+    "eligible_record_count": 1052,
+    "manifest_sha256": "250e58e1004218afa8078951c4667d87f1d68c049a2f801cb6383e317ff887e2",
+    "one_slide_per_case": true,
+    "query_scope": "open primary-tumor TCGA-LUAD/TCGA-LUSC diagnostic DX slide metadata",
+    "record_count": 6,
+    "selection_seed": 17,
+    "source": "https://api.gdc.cancer.gov/files"
+  },
+  "schema_version": "1.0",
+  "stage": "metadata_preflight",
+  "status": "passed",
+  "timestamp_utc": "2026-09-08T20:43:17Z"
+}

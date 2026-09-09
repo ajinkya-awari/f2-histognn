@@ -4,7 +4,7 @@ Synthetic-first, leakage-aware nuclei-graph contracts for an exploratory LUAD/LU
 
 > **Verified boundary:** implementation and 62 synthetic/offline tests pass locally and on private Kaggle version 2. No real histopathology benchmark, clinical result, model checkpoint, or performance metric is claimed.
 
-> **Real-data work:** the TCGA LUAD/LUSC route is approved and tracked in [issue #1](https://github.com/ajinkya-awari/f2-histognn/issues/1). A metadata-only preflight passed on 2026-09-08; the nuclei/graph smoke remains **awaiting real-data evidence** and is being developed in a draft pull request. See the [prespecified protocol](docs/REAL_DATA_BENCHMARK_PROTOCOL.md).
+> **Real-data work:** the TCGA LUAD/LUSC route is approved and tracked in [issue #1](https://github.com/ajinkya-awari/f2-histognn/issues/1). A corrected metadata-only preflight passed with explicit primary-tumor diagnostic-slide filtering and zero slide bytes; nuclei/graph-smoke evidence remains **pending** in a draft pull request. See the [prespecified protocol](docs/REAL_DATA_BENCHMARK_PROTOCOL.md).
 
 ## Problem
 
@@ -52,6 +52,8 @@ Or run `scripts/verify_synthetic.ps1` on PowerShell / `scripts/verify_synthetic.
 
 Local planning-tree verification on 2026-09-07: **62 passed, 3 warnings, exit 0** in 13.17 seconds. Final standalone public-export verification on 2026-09-08: **62 passed, 3 warnings, exit 0** in 19.15 seconds. Both used Python 3.11.9, NumPy 2.4.6, PyTorch 2.12.1+cpu, PyTorch Geometric 2.7.0, and pytest 9.0.3. The warnings are one PyG distributed deprecation and two `torch.jit.script` deprecations. These are synthetic contract tests, not histology results.
 
+Draft real-data-gate verification on 2026-09-09: **109 passed, 3 warnings, exit 0** in 17.16 seconds; compile, notebook JSON, and diff checks also exited 0. The expanded count includes offline regression tests for GDC eligibility, sanitized evidence, bounded downloads, HoVer-Net probability preservation, and runtime/source-attestation gates. It is not real-data model-performance evidence.
+
 ## Kaggle execution
 
 Follow [`notebooks/KAGGLE_RUNBOOK_07-f2-histognn.md`](notebooks/KAGGLE_RUNBOOK_07-f2-histognn.md) and execute the notebook one gate at a time. Private kernel `ajinkya1225/07-f2-histognn`, version 2, completed on 2026-09-08: **62 passed, 3 warnings, exit 0** in 15.01 seconds on CPU. It used Python 3.12.13, NumPy 2.4.6, PyTorch 2.12.1, PyTorch Geometric 2.7.0, and pytest 9.0.3. The PyTorch build reported CUDA 13.0, but CUDA was unavailable at runtime with zero visible GPUs; no GPU training ran. Version 1 remains a documented source-staging failure.
@@ -66,7 +68,7 @@ The separately gated real-data route is documented in [`notebooks/KAGGLE_REAL_DA
 | Determinism and patient/case-disjoint split assertions | Locally verified on synthetic fixtures |
 | Kaggle source-only run | Version 2 completed and verified |
 | Kaggle synthetic graph smoke | Verified through 62 synthetic contract tests on CPU |
-| GDC metadata reader and deterministic six-case manifest | Implemented; metadata-only preflight verified |
+| GDC primary-diagnostic metadata reader and deterministic six-case manifest | Corrected live metadata-only preflight passed; zero slide bytes |
 | Real-data nuclei and graph smoke | Approved; awaiting Kaggle evidence |
 | Real LUAD/LUSC benchmark and metrics | Not verified |
 | GPU training or performance | Not run / not verified |

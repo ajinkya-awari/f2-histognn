@@ -22,9 +22,16 @@ import numpy as np
 import torch
 
 from data.evidence import build_stage_evidence, write_evidence
-from data.gdc import extract_gdc_response_hits, manifest_summary, parse_gdc_hits, select_case_disjoint_pilot
+from data.gdc import (
+    extract_gdc_response_hits,
+    filter_diagnostic_hits,
+    manifest_summary,
+    parse_gdc_hits,
+    select_case_disjoint_pilot,
+)
 from data.graph import build_knn_graph
 from data.hovernet import load_hovernet_instances
+from data.hovernet_patch import patch_hovernet_checkout
 from data.sampling import farthest_point_sampling
 from data.tiles import select_tissue_tile_origins
 from models import GAT, GCN, GraphGPS, GraphSAGE
@@ -65,8 +72,67 @@ def _dependency_lock_hash(root: Path) -> str:
     return hasher.hexdigest()
 
 
+def _source_tree_hash(root: Path) -> str:
+    """Hash the staged public source while ignoring interpreter cache files."""
+
+    hasher = hashlib.sha256()
+    files = sorted(
+        path
+        for path in root.rglob("*")
+        if path.is_file()
+        and ".git" not in path.parts
+        and "__pycache__" not in path.parts
+        and path.suffix != ".pyc"
+    )
+    for path in files:
+        relative = path.relative_to(root).as_posix()
+        hasher.update(relative.encode("utf-8") + b"\0")
+        hasher.update(path.read_bytes())
+    return hasher.hexdigest()
+
+
 def _run(command: list[str], *, cwd: Path | None = None) -> None:
     subprocess.run(command, cwd=cwd, check=True)
+
+
+def _require_kaggle_private_runtime(
+    environment,
+    working: Path,
+    temporary: Path,
+    input_directory: Path,
+    kaggle_marker: Path,
+    observed_tree_hash: str,
+) -> str:
+    revision = environment.get("PROJECT07_SOURCE_REVISION", "")
+    expected_tree_hash = environment.get("PROJECT07_SOURCE_TREE_SHA256", "")
+    if (
+        not working.is_dir()
+        or not temporary.is_dir()
+        or not input_directory.is_dir()
+        or not kaggle_marker.is_file()
+        or environment.get("PROJECT07_PRIVATE_KERNEL") != "true"
+        or re.fullmatch(r"[0-9a-f]{40}", revision) is None
+        or re.fullmatch(r"[0-9a-f]{64}", expected_tree_hash) is None
+        or expected_tree_hash != observed_tree_hash
+    ):
+        raise RuntimeError("refusing real-data execution without Kaggle private-runtime attestation")
+    return revision
+
+
+def _bounded_copy(source, destination, *, expected_bytes: int, remaining_bytes: int) -> int:
+    limit = min(expected_bytes, remaining_bytes)
+    copied = 0
+    while True:
+        block = source.read(min(1024 * 1024, limit - copied + 1))
+        if not block:
+            break
+        if copied + len(block) > limit:
+            raise RuntimeError("slide download exceeded byte boundary")
+        destination.write(block)
+        copied += len(block)
+    if copied != expected_bytes:
+        raise RuntimeError("downloaded slide byte size mismatch")
+    return copied
 
 
 def _prepare_hovernet(private: Path) -> tuple[Path, Path, str]:
@@ -89,37 +155,7 @@ def _prepare_hovernet(private: Path) -> tuple[Path, Path, str]:
     if observed_hash != CHECKPOINT_SHA256:
         raise RuntimeError("HoVer-Net checkpoint SHA-256 mismatch")
 
-    for source in checkout.rglob("*.py"):
-        text = source.read_text(encoding="utf-8")
-        updated = re.sub(r"\bnp\.(int|float|bool)\b", lambda match: match.group(1), text)
-        if updated != text:
-            source.write_text(updated, encoding="utf-8")
-
-    base = checkout / "infer" / "base.py"
-    text = base.read_text(encoding="utf-8")
-    target = 'torch.load(self.method["model_path"])["desc"]'
-    if target not in text:
-        raise RuntimeError("HoVer-Net checkpoint-loading patch target not found")
-    base.write_text(
-        text.replace(target, 'torch.load(self.method["model_path"], weights_only=False)["desc"]'),
-        encoding="utf-8",
-    )
-
-    postproc = checkout / "models" / "hovernet" / "post_proc.py"
-    text = postproc.read_text(encoding="utf-8")
-    target = 'inst_info_dict[inst_id]["type_prob"] = float(type_prob)'
-    replacement = (
-        'inst_info_dict[inst_id]["type_prob"] = float(type_prob)\n'
-        '            pixel_count = np.sum(inst_map_crop) + 1.0e-6\n'
-        '            inst_info_dict[inst_id]["probs"] = [\n'
-        '                float(type_dict.get(class_index, 0) / pixel_count)\n'
-        '                for class_index in range(nr_types)\n'
-        '            ]'
-    )
-    if target not in text:
-        raise RuntimeError("HoVer-Net full-probability patch target not found")
-    postproc.write_text(text.replace(target, replacement), encoding="utf-8")
-    patch_hash = hashlib.sha256(replacement.encode("utf-8")).hexdigest()
+    patch_hash = patch_hovernet_checkout(checkout)
     return checkout, checkpoint, patch_hash
 
 
@@ -139,12 +175,15 @@ def _download_slides(records, private: Path) -> tuple[list[tuple[object, Path]],
             headers={"User-Agent": "f2-histognn/0.1"},
         )
         with urlopen(request, timeout=120) as response, destination.open("xb") as handle:
-            shutil.copyfileobj(response, handle, length=1024 * 1024)
-        if destination.stat().st_size != record.file_size:
-            raise RuntimeError("downloaded slide byte size mismatch")
+            copied = _bounded_copy(
+                response,
+                handle,
+                expected_bytes=record.file_size,
+                remaining_bytes=MAX_TOTAL_SLIDE_BYTES - actual_total,
+            )
         if _digest(destination, "md5") != record.md5sum:
             raise RuntimeError("downloaded slide MD5 mismatch")
-        actual_total += destination.stat().st_size
+        actual_total += copied
         downloaded.append((record, destination))
     return downloaded, actual_total
 
@@ -284,8 +323,18 @@ def main() -> int:
     started = time.monotonic()
     working = Path("/kaggle/working")
     private = Path("/kaggle/temp/project07-private")
-    if not working.is_dir() or not Path("/kaggle/temp").is_dir():
-        print("refusing to run real-data pilot outside Kaggle", file=sys.stderr)
+    root = Path(__file__).resolve().parents[1]
+    try:
+        source_revision = _require_kaggle_private_runtime(
+            environment=os.environ,
+            working=working,
+            temporary=Path("/kaggle/temp"),
+            input_directory=Path("/kaggle/input"),
+            kaggle_marker=Path("/kaggle/lib/kaggle/gcp.py"),
+            observed_tree_hash=_source_tree_hash(root),
+        )
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
         return 2
     if private.exists():
         print("private pilot directory already exists; refusing to overwrite", file=sys.stderr)
@@ -306,7 +355,7 @@ def main() -> int:
         return 3
 
     response = _query(10000)
-    records = parse_gdc_hits(extract_gdc_response_hits(response))
+    records = parse_gdc_hits(filter_diagnostic_hits(extract_gdc_response_hits(response)))
     pilot = select_case_disjoint_pilot(records, per_class=PILOT_PER_CLASS, seed=PILOT_SEED)
     summary = manifest_summary(pilot)
     checkout, checkpoint, patch_hash = _prepare_hovernet(private)
@@ -315,8 +364,6 @@ def main() -> int:
     json_dir = _run_hovernet(checkout, checkpoint, tile_dir, private)
     smoke = _graph_smoke(json_dir)
 
-    root = Path(__file__).resolve().parents[1]
-    source_revision = os.environ.get("PROJECT07_SOURCE_REVISION", "uncommitted-staging")
     evidence = build_stage_evidence(
         stage="real_data_graph_smoke",
         status="passed",

@@ -16,6 +16,7 @@ from data.evidence import build_stage_evidence, write_evidence
 from data.gdc import (
     build_gdc_query_payload,
     extract_gdc_response_hits,
+    filter_diagnostic_hits,
     manifest_summary,
     parse_gdc_hits,
     select_case_disjoint_pilot,
@@ -60,7 +61,7 @@ def main() -> int:
     timestamp = _timestamp()
 
     response = _query(build_gdc_query_payload()["size"])
-    records = parse_gdc_hits(extract_gdc_response_hits(response))
+    records = parse_gdc_hits(filter_diagnostic_hits(extract_gdc_response_hits(response)))
     pilot = select_case_disjoint_pilot(
         records, per_class=PILOT_PER_CLASS, seed=PILOT_SEED
     )

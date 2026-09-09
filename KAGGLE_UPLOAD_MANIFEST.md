@@ -11,7 +11,7 @@ Expand the reviewed source bundle into `/kaggle/working/07-f2-histognn`.
 - `data/`, `models/`, `explanations/`, `training/`, and `tests/`
 - `README.md`, `DESIGN.md`, `requirements.txt`, and `pyproject.toml`
 - `notebooks/kaggle_run_07-f2-histognn.ipynb`
-- For the separately approved real-data stages only: `requirements-kaggle-real-data.txt`, `scripts/query_gdc_manifest.py`, `scripts/kaggle_real_data_discovery.py`, `scripts/kaggle_real_data_pilot.py`, and the corresponding discovery/pilot notebooks.
+- For the separately approved real-data stages only: `requirements-kaggle-real-data.txt`, `data/hovernet_patch.py`, `scripts/query_gdc_manifest.py`, `scripts/kaggle_real_data_discovery.py`, `scripts/kaggle_real_data_pilot.py`, and the corresponding discovery/pilot notebooks.
 
 ## Exclude
 

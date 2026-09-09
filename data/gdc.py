@@ -17,6 +17,8 @@ class GDCManifestError(ValueError):
 
 _PROJECT_TO_LABEL = {"TCGA-LUAD": "LUAD", "TCGA-LUSC": "LUSC"}
 _MD5_PATTERN = re.compile(r"^[0-9a-fA-F]{32}$")
+_DIAGNOSTIC_SLIDE_PATTERN = re.compile(r"-DX[0-9A-Z]+$")
+_DIAGNOSTIC_FILE_PATTERN = re.compile(r"-DX[0-9A-Z]+(?:\.[^.]+)?\.svs$", re.IGNORECASE)
 
 
 def build_gdc_query_payload(*, page_size: int = 10000) -> dict[str, Any]:
@@ -37,6 +39,10 @@ def build_gdc_query_payload(*, page_size: int = 10000) -> dict[str, Any]:
                 },
                 {"op": "=", "content": {"field": "data_type", "value": "Slide Image"}},
                 {"op": "=", "content": {"field": "access", "value": "open"}},
+                {
+                    "op": "=",
+                    "content": {"field": "cases.samples.sample_type", "value": "Primary Tumor"},
+                },
             ],
         },
         "format": "JSON",
@@ -51,30 +57,12 @@ def build_gdc_query_payload(*, page_size: int = 10000) -> dict[str, Any]:
                 "cases.case_id",
                 "cases.submitter_id",
                 "cases.project.project_id",
+                "cases.samples.sample_type",
                 "cases.samples.portions.slides.submitter_id",
             )
         ),
         "size": page_size,
     }
-
-
-def extract_gdc_response_hits(payload: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
-    """Extract a complete page of hits and reject silently truncated responses."""
-
-    if not isinstance(payload, Mapping) or not isinstance(payload.get("data"), Mapping):
-        raise GDCManifestError("GDC response must contain a data mapping")
-    data = payload["data"]
-    hits = data.get("hits")
-    pagination = data.get("pagination")
-    if not isinstance(hits, list) or not isinstance(pagination, Mapping):
-        raise GDCManifestError("GDC response must contain hits and pagination")
-    total = pagination.get("total")
-    count = pagination.get("count")
-    if type(total) is not int or type(count) is not int:
-        raise GDCManifestError("GDC response pagination counts must be integers")
-    if count != len(hits) or total != count:
-        raise GDCManifestError("GDC response is truncated; increase page_size or paginate")
-    return tuple(hits)
 
 
 def extract_gdc_response_hits(response: Any) -> tuple[Mapping[str, Any], ...]:
@@ -96,6 +84,19 @@ def extract_gdc_response_hits(response: Any) -> tuple[Mapping[str, Any], ...]:
     if count != total:
         raise GDCManifestError(f"GDC response is truncated: received {count} of {total}")
     return tuple(hits)
+
+
+def filter_diagnostic_hits(hits: Iterable[Mapping[str, Any]]) -> tuple[Mapping[str, Any], ...]:
+    """Restrict a GDC metadata page to filenames encoding diagnostic DX slides."""
+
+    values = tuple(hits)
+    return tuple(
+        hit
+        for hit in values
+        if isinstance(hit, Mapping)
+        and isinstance(hit.get("file_name"), str)
+        and _DIAGNOSTIC_FILE_PATTERN.search(hit["file_name"])
+    )
 
 
 @dataclass(frozen=True, order=True)
@@ -129,9 +130,16 @@ def _single_case(hit: Mapping[str, Any]) -> Mapping[str, Any]:
 def _slide_id(case: Mapping[str, Any], file_name: str) -> str:
     found: set[str] = set()
     samples = case.get("samples", [])
+    if not isinstance(samples, list) or not any(
+        isinstance(sample, Mapping) and sample.get("sample_type") == "Primary Tumor"
+        for sample in samples
+    ):
+        raise GDCManifestError("slide must be linked to a Primary Tumor sample")
     if isinstance(samples, list):
         for sample in samples:
             if not isinstance(sample, Mapping):
+                continue
+            if sample.get("sample_type") != "Primary Tumor":
                 continue
             portions = sample.get("portions", [])
             if not isinstance(portions, list):
@@ -150,7 +158,10 @@ def _slide_id(case: Mapping[str, Any], file_name: str) -> str:
     matches = {value for value in found if file_name.startswith(value + ".")}
     if len(matches) != 1:
         raise GDCManifestError("each file must resolve to exactly one slide submitter ID")
-    return next(iter(matches))
+    slide_id = next(iter(matches))
+    if not _DIAGNOSTIC_SLIDE_PATTERN.search(slide_id):
+        raise GDCManifestError("slide must be a primary diagnostic DX slide")
+    return slide_id
 
 
 def _parse_hit(hit: Mapping[str, Any]) -> GDCSlideRecord:

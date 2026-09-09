@@ -1,7 +1,8 @@
 # Additive lock for the private real-data Kaggle stages.
-# Install after requirements.txt in an isolated Kaggle session.
+# Additions to the Kaggle image. Do not reinstall the source-only CPU lock:
+# doing so would replace Kaggle's CUDA-enabled PyTorch stack.
 docopt==0.6.2
 gdown==5.2.0
 openslide-bin==4.0.0.10
 openslide-python==1.4.2
-
+torch-geometric==2.7.0

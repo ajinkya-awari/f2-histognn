@@ -24,10 +24,16 @@ private ephemeral Kaggle storage and is not redistributed.
 1. Stage the reviewed repository allowlist into `/kaggle/working/07-f2-histognn`.
 2. Configure a private notebook with internet and GPU enabled, no attached
    datasets, models, competitions, or kernels.
-3. Install `requirements-kaggle-real-data.txt` after the source-only lock.
+3. Install only the additive `requirements-kaggle-real-data.txt`. Do not install
+   the source-only CPU lock over Kaggle's CUDA-enabled PyTorch stack.
 4. Run `scripts/kaggle_real_data_pilot.py` once.
 5. Poll to `COMPLETE`, `ERROR`, `CANCELLED`, missing status, or the bounded
-   timeout.
+   timeout. The pre-push check must confirm `is_private: true`; the generated
+   bootstrap attests that check to the runtime. Before acquisition, the script
+   also requires Kaggle's `/kaggle/lib/kaggle/gcp.py` runtime marker, a full
+   reviewed Git revision, and a byte-exact source-tree SHA-256 match. Kaggle's
+   older `KAGGLE_KERNEL_RUN_TYPE` variable is not relied upon because it was
+   absent in the observed batch runtime.
 6. Download outputs once. Inspect only `project07-evidence/*.json` as public
    evidence.
 
@@ -52,4 +58,3 @@ computed by this notebook.
 A larger patient-disjoint benchmark requires a separate, prespecified cohort
 size, split, training schedule, class-imbalance policy, seed set, and uncertainty
 method after this smoke is accepted.
-

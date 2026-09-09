@@ -1,4 +1,5 @@
 import copy
+from io import BytesIO
 import json
 from pathlib import Path
 import subprocess
@@ -11,6 +12,7 @@ from data.gdc import (
     GDCManifestError,
     build_gdc_query_payload,
     extract_gdc_response_hits,
+    filter_diagnostic_hits,
     manifest_summary,
     parse_gdc_hits,
     select_case_disjoint_pilot,
@@ -18,7 +20,13 @@ from data.gdc import (
 from data.evidence import EvidenceError, build_stage_evidence, write_evidence
 from data.hovernet import HoverNetOutputError, load_hovernet_instances
 from data.tiles import TileSelectionError, select_tissue_tile_origins
-from scripts.kaggle_real_data_pilot import _dependency_lock_hash
+from data.hovernet_patch import patch_hovernet_checkout
+from scripts.kaggle_real_data_pilot import (
+    _bounded_copy,
+    _dependency_lock_hash,
+    _require_kaggle_private_runtime,
+    _source_tree_hash,
+)
 
 
 def gdc_hit(*, project="TCGA-LUAD", case="TCGA-AA-0001", file_id="file-1"):
@@ -36,6 +44,7 @@ def gdc_hit(*, project="TCGA-LUAD", case="TCGA-AA-0001", file_id="file-1"):
                 "project": {"project_id": project},
                 "samples": [
                     {
+                        "sample_type": "Primary Tumor",
                         "portions": [
                             {"slides": [{"submitter_id": f"{case}-01Z-00-DX1"}]}
                         ]
@@ -69,6 +78,21 @@ def test_gdc_parser_resolves_the_slide_barcode_from_a_compound_file_name():
     record = parse_gdc_hits([hit])[0]
 
     assert record.slide_submitter_id == "TCGA-AA-0001-01Z-00-DX1"
+
+
+def test_gdc_parser_rejects_non_primary_or_non_diagnostic_slides():
+    non_primary = gdc_hit()
+    non_primary["cases"][0]["samples"][0]["sample_type"] = "Recurrent Tumor"
+    with pytest.raises(GDCManifestError, match="Primary Tumor"):
+        parse_gdc_hits([non_primary])
+
+    non_diagnostic = gdc_hit()
+    non_diagnostic["file_name"] = "TCGA-AA-0001-01Z-00-TS1.svs"
+    non_diagnostic["cases"][0]["samples"][0]["portions"][0]["slides"][0][
+        "submitter_id"
+    ] = "TCGA-AA-0001-01Z-00-TS1"
+    with pytest.raises(GDCManifestError, match="diagnostic"):
+        parse_gdc_hits([non_diagnostic])
 
 
 @pytest.mark.parametrize(
@@ -256,6 +280,7 @@ def test_gdc_query_payload_is_open_slide_only_and_requests_grouping_fields():
         "Slide Image",
         "open",
         "cases.submitter_id",
+        "cases.samples.sample_type",
         "cases.samples.portions.slides.submitter_id",
     ):
         assert required in serialized
@@ -278,6 +303,13 @@ def test_gdc_response_parser_rejects_truncation_and_malformed_payloads():
         extract_gdc_response_hits({"message": "error"})
 
 
+def test_gdc_diagnostic_filter_excludes_tissue_and_other_slide_files():
+    diagnostic = gdc_hit()
+    tissue = gdc_hit(file_id="tissue")
+    tissue["file_name"] = "TCGA-AA-0001-01Z-00-TS1.svs"
+    assert filter_diagnostic_hits([diagnostic, tissue]) == (diagnostic,)
+
+
 def test_gdc_manifest_script_supports_direct_cli_invocation():
     root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
@@ -290,6 +322,27 @@ def test_gdc_manifest_script_supports_direct_cli_invocation():
 
     assert result.returncode == 0
     assert "--private-manifest" in result.stdout
+    assert "--private-root" in result.stdout
+
+    blocked = subprocess.run(
+        [
+            sys.executable,
+            "scripts/query_gdc_manifest.py",
+            "--private-manifest",
+            str(root / "private-manifest-must-not-exist.json"),
+            "--private-root",
+            str(root),
+            "--evidence",
+            str(root / "evidence-must-not-exist.json"),
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert blocked.returncode == 2
+    assert "outside" in blocked.stderr
+    assert not (root / "private-manifest-must-not-exist.json").exists()
 
 
 def complete_provenance():
@@ -340,6 +393,12 @@ def test_evidence_rejects_identifiers_and_is_append_only(tmp_path):
             status="passed",
             provenance={"case_id": "TCGA-AA-0001"},
         )
+    with pytest.raises(EvidenceError, match="identifier"):
+        build_stage_evidence(
+            stage="metadata_preflight",
+            status="passed",
+            provenance={"note": "contains TCGA-AA-0001 in a value"},
+        )
 
     evidence = build_stage_evidence(
         stage="metadata_preflight",
@@ -351,6 +410,60 @@ def test_evidence_rejects_identifiers_and_is_append_only(tmp_path):
     assert json.loads(path.read_text(encoding="utf-8")) == evidence
     with pytest.raises(EvidenceError, match="already exists"):
         write_evidence(path, evidence)
+
+
+@pytest.mark.parametrize(
+    "metrics",
+    [
+        {"accuracy": -7, "macro_f1": 0.4, "auroc": 0.6, "auprc": 0.55},
+        {"accuracy": 0.5, "macro_f1": 0.4, "auroc": 42, "auprc": 0.55},
+        {"accuracy": 0.5},
+    ],
+)
+def test_metric_evidence_rejects_invalid_metric_values(metrics):
+    with pytest.raises(EvidenceError, match="metric"):
+        build_stage_evidence(
+            stage="benchmark",
+            status="passed",
+            provenance=complete_provenance(),
+            metrics=metrics,
+        )
+
+
+def test_metric_evidence_rejects_null_provenance():
+    provenance = complete_provenance()
+    provenance["dataset_release"] = None
+    with pytest.raises(EvidenceError, match="provenance"):
+        build_stage_evidence(
+            stage="benchmark",
+            status="passed",
+            provenance=provenance,
+            metrics={"accuracy": 0.5, "macro_f1": 0.4, "auroc": 0.6, "auprc": 0.55},
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("seed", "17"),
+        ("device", {"type": "cuda", "name": ""}),
+        ("artifact_count", 0),
+        ("class_counts", {"LUAD": 2, "LUSC": 0}),
+        ("artifact_hashes", {"graphs": "bad"}),
+        ("positive_class", "unknown"),
+        ("uncertainty_method", ""),
+    ],
+)
+def test_metric_evidence_rejects_invalid_typed_provenance(field, value):
+    provenance = complete_provenance()
+    provenance[field] = value
+    with pytest.raises(EvidenceError, match="provenance"):
+        build_stage_evidence(
+            stage="benchmark",
+            status="passed",
+            provenance=provenance,
+            metrics={"accuracy": 0.5, "macro_f1": 0.4, "auroc": 0.6, "auprc": 0.55},
+        )
 
 
 def test_tissue_tile_selection_is_deterministic_bounded_and_in_slide_coordinates():
@@ -396,3 +509,79 @@ def test_real_data_dependency_hash_covers_both_lock_files(tmp_path):
     assert _dependency_lock_hash(tmp_path) == (
         "9e0cc975f5ed68a1126c908b6144b3b06ad87479a7063acc880a44930cf9a9c7"
     )
+
+
+def test_bounded_copy_stops_before_exceeding_declared_or_total_limit(tmp_path):
+    target = tmp_path / "slide.svs"
+    with target.open("xb") as handle:
+        assert _bounded_copy(BytesIO(b"1234"), handle, expected_bytes=4, remaining_bytes=4) == 4
+    assert target.read_bytes() == b"1234"
+
+    overflow = tmp_path / "overflow.svs"
+    with overflow.open("xb") as handle, pytest.raises(RuntimeError, match="byte boundary"):
+        _bounded_copy(BytesIO(b"12345"), handle, expected_bytes=4, remaining_bytes=10)
+
+
+def test_private_kaggle_runtime_gate_requires_kaggle_marker_private_attestation_and_revision(tmp_path):
+    working = tmp_path / "working"
+    temporary = tmp_path / "temp"
+    input_directory = tmp_path / "input"
+    marker = tmp_path / "kaggle" / "gcp.py"
+    working.mkdir()
+    temporary.mkdir()
+    input_directory.mkdir()
+    marker.parent.mkdir()
+    marker.write_text("# runtime marker\n", encoding="utf-8")
+    valid = {
+        "PROJECT07_PRIVATE_KERNEL": "true",
+        "PROJECT07_SOURCE_REVISION": "a" * 40,
+        "PROJECT07_SOURCE_TREE_SHA256": "b" * 64,
+    }
+    assert _require_kaggle_private_runtime(
+        valid, working, temporary, input_directory, marker, "b" * 64
+    ) == "a" * 40
+    for key in valid:
+        invalid = dict(valid)
+        invalid.pop(key)
+        with pytest.raises(RuntimeError, match="refusing"):
+            _require_kaggle_private_runtime(
+                invalid, working, temporary, input_directory, marker, "b" * 64
+            )
+
+
+def test_source_tree_hash_is_stable_and_detects_changed_bytes(tmp_path):
+    (tmp_path / "a.txt").write_text("one", encoding="utf-8")
+    first = _source_tree_hash(tmp_path)
+    assert first == _source_tree_hash(tmp_path)
+    (tmp_path / "a.txt").write_text("two", encoding="utf-8")
+    assert _source_tree_hash(tmp_path) != first
+
+
+def test_hovernet_patch_preserves_softmax_probabilities_for_each_instance(tmp_path):
+    checkout = tmp_path / "hover_net"
+    run_desc = checkout / "models" / "hovernet" / "run_desc.py"
+    post_proc = checkout / "models" / "hovernet" / "post_proc.py"
+    base = checkout / "infer" / "base.py"
+    run_desc.parent.mkdir(parents=True)
+    base.parent.mkdir(parents=True)
+    run_desc.write_text(
+        '            type_map = F.softmax(pred_dict["tp"], dim=-1)\n'
+        '            type_map = torch.argmax(type_map, dim=-1, keepdim=True)\n'
+        '            type_map = type_map.type(torch.float32)\n'
+        '            pred_dict["tp"] = type_map\n'
+        '        pred_output = torch.cat(list(pred_dict.values()), -1)\n',
+        encoding="utf-8",
+    )
+    post_proc.write_text(
+        '        pred_type = pred_map[..., :1]\n'
+        '        pred_inst = pred_map[..., 1:]\n'
+        '            inst_info_dict[inst_id]["type_prob"] = float(type_prob)\n',
+        encoding="utf-8",
+    )
+    base.write_text('torch.load(self.method["model_path"])["desc"]\n', encoding="utf-8")
+
+    patch_hovernet_checkout(checkout)
+
+    assert 'type_probs = F.softmax(pred_dict["tp"], dim=-1)' in run_desc.read_text()
+    assert 'pred_map[..., 4 : 4 + nr_types]' in post_proc.read_text()
+    assert 'np.mean(inst_probs, axis=0)' in post_proc.read_text()

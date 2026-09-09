@@ -47,6 +47,8 @@ the pilot evidence passes review.
 ## Nuclei and graph contract
 
 HoVer-Net must run with PanNuke type prediction and probability output enabled.
+Each nucleus probability vector is the mean of the model's per-pixel softmax
+outputs over that nucleus mask; hard argmax label fractions are not accepted.
 For every accepted nucleus, the adapter emits:
 
 1. centroid `x` and `y` in slide coordinates;
@@ -100,4 +102,3 @@ Development occurs in a feature branch and draft pull request. `main` continues
 to describe the verified synthetic release. The tracking issue and draft pull
 request stay marked **awaiting real-data evidence** until the Kaggle artifacts
 are downloaded, sanitized, reviewed, and linked. Merge is not automatic.
-
