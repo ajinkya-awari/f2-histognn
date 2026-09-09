@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import asdict
 from datetime import datetime, timezone
 import hashlib
 import importlib.metadata
@@ -10,6 +11,7 @@ import json
 import math
 import os
 from pathlib import Path
+import shutil
 import sys
 import time
 from urllib.request import Request, urlopen
@@ -37,14 +39,16 @@ from scripts.kaggle_real_data_pilot import (
     _run_hovernet,
 )
 from training.benchmark import FROZEN_POLICY, partition_private_graphs, run_frozen_benchmark
+from models import MODEL_REGISTRY
 
 
 CASES_PER_CLASS = 50
 TRAIN_PER_CLASS = 30
 VALIDATION_PER_CLASS = 10
 TEST_PER_CLASS = 10
-MAX_INDIVIDUAL_SLIDE_BYTES = 2 * 1024 * 1024 * 1024
-MAX_TOTAL_SLIDE_BYTES = 20 * 1024 * 1024 * 1024
+MAX_INDIVIDUAL_SLIDE_BYTES = 3 * 1024**3
+MAX_TOTAL_SLIDE_BYTES = 70 * 1024**3
+DISK_RESERVE_BYTES = 2 * 1024**3
 TILE_PIXELS_AT_40X = 256
 
 
@@ -53,6 +57,9 @@ def _timestamp() -> str:
 
 
 def _fetch_slide(record, destination: Path) -> None:
+    if shutil.disk_usage(destination.parent).free < record.file_size + DISK_RESERVE_BYTES:
+        raise RuntimeError("insufficient free disk for the next streamed slide")
+    print(json.dumps({"stage": "slide_download", "expected_bytes": record.file_size}), flush=True)
     request = Request(
         f"https://api.gdc.cancer.gov/data/{record.file_id}",
         headers={"User-Agent": "f2-histognn/0.1"},
@@ -110,6 +117,90 @@ def _query_eligible_records(query=_query):
     return parse_gdc_hits(filter_diagnostic_hits(extract_gdc_response_hits(response)))
 
 
+def _validate_streaming_budget(records, *, free_bytes: int) -> int:
+    largest = max(record.file_size for record in records)
+    total = sum(record.file_size for record in records)
+    if largest > MAX_INDIVIDUAL_SLIDE_BYTES:
+        raise RuntimeError("selected slide exceeds the 3 GiB individual safety boundary")
+    if total > MAX_TOTAL_SLIDE_BYTES:
+        raise RuntimeError("selected cohort exceeds the 70 GiB total safety boundary")
+    if free_bytes < largest + DISK_RESERVE_BYTES:
+        raise RuntimeError("insufficient free disk for streamed slides plus reserve")
+    return total
+
+
+def _write_private_manifests(private: Path, cohort, split) -> None:
+    payloads = {
+        "cohort.json": [asdict(record) for record in sorted(cohort)],
+        "split.json": {
+            name: [
+                {key: getattr(record, key) for key in ("case_id", "file_id", "label", "md5sum")}
+                for record in getattr(split, name)
+            ]
+            for name in ("train", "validation", "test")
+        },
+    }
+    for name, payload in payloads.items():
+        with (private / name).open("xb") as handle:
+            handle.write(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode())
+
+
+def _model_training_preflight(*, device="cuda", nodes_per_graph=512, graph_count=16):
+    """One synthetic optimizer step per architecture, before real acquisition."""
+    n = nodes_per_graph * graph_count
+    indices = torch.arange(n, device=device)
+    batch = indices // nodes_per_graph
+    x = torch.zeros((n, 7), device=device)
+    x[:, 0] = (indices % nodes_per_graph).float() / max(1, nodes_per_graph - 1)
+    x[:, 2:] = 0.2
+    # Eight local ring neighbours exercise the production edge-density bound.
+    source = indices.repeat(8)
+    destination = ((source % nodes_per_graph + torch.arange(1, 9, device=device)
+                    .repeat_interleave(n)) % nodes_per_graph
+                   + (source // nodes_per_graph) * nodes_per_graph)
+    edges = torch.stack((source, destination))
+    edge_attr = torch.ones((edges.shape[1], 1), device=device)
+    labels = torch.arange(graph_count, device=device) % 2
+    results = {}
+    for name in FROZEN_POLICY.models:
+        model = MODEL_REGISTRY[name](hidden_dim=32, seed=17).to(device)
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
+        output = model(x, edges, edge_attr, batch)
+        if output.shape != (graph_count, 2) or not torch.isfinite(output).all():
+            raise RuntimeError(f"synthetic training preflight output failed: {name}")
+        loss = torch.nn.functional.cross_entropy(output, labels, reduction="sum")
+        loss.backward()
+        if not torch.isfinite(loss) or any(
+            p.grad is not None and not torch.isfinite(p.grad).all() for p in model.parameters()
+        ):
+            raise RuntimeError(f"synthetic training preflight backward failed: {name}")
+        optimizer.step()
+        if any(not torch.isfinite(p).all() for p in model.parameters()):
+            raise RuntimeError(f"synthetic training preflight update failed: {name}")
+        results[name] = {"output_shape": list(output.shape), "backward_finite": True}
+        del model, optimizer, output, loss
+    if torch.device(device).type == "cuda":
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+    return results
+
+
+def _seed_provenance(common, model_name, model_result, seed_result):
+    return {
+        **common,
+        **{key: seed_result[key] for key in (
+            "seed", "best_epoch", "epochs_run", "best_validation_loss",
+            "confidence_intervals_95", "train_loss", "validation_loss",
+        )},
+        "model": model_name,
+        "artifact_hashes": {
+            **common["artifact_hashes"],
+            "selected_classifier_state": seed_result["selected_state_sha256"],
+        },
+        "mean_metrics_across_seeds": model_result["mean_metrics"],
+    }
+
+
 def main() -> int:
     started = time.monotonic()
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
@@ -132,13 +223,11 @@ def main() -> int:
     evidence_dir = working / "project07-evidence"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     device_name = _require_cuda_execution()
+    preflight = _model_training_preflight()
+    print(json.dumps({"stage": "synthetic_training_preflight", "models": preflight}), flush=True)
     eligible = _query_eligible_records()
     cohort = select_balanced_cases(eligible, per_class=CASES_PER_CLASS, seed=PILOT_SEED)
-    if any(record.file_size > MAX_INDIVIDUAL_SLIDE_BYTES for record in cohort):
-        raise RuntimeError("selected slide exceeds the 2 GiB individual safety boundary")
-    expected_bytes = sum(record.file_size for record in cohort)
-    if expected_bytes > MAX_TOTAL_SLIDE_BYTES:
-        raise RuntimeError("selected cohort exceeds the 20 GiB total safety boundary")
+    expected_bytes = _validate_streaming_budget(cohort, free_bytes=shutil.disk_usage(private).free)
     split = stratified_case_split(
         cohort,
         seed=PILOT_SEED,
@@ -148,6 +237,10 @@ def main() -> int:
     )
     split_summary = sanitized_split_summary(split)
     cohort_summary = manifest_summary(cohort)
+    _write_private_manifests(private, cohort, split)
+    print(json.dumps({"stage": "cohort_preflight", "expected_slide_bytes": expected_bytes,
+                      "manifest_sha256": cohort_summary["manifest_sha256"],
+                      "split": split_summary}), flush=True)
     checkout, checkpoint, patch_hash = _prepare_hovernet(private)
     streamed = stream_slide_tiles(cohort, private, _fetch_slide, _extract_one_slide)
     json_dir = _run_hovernet(checkout, checkpoint, streamed.tile_dir, private)
@@ -177,13 +270,22 @@ def main() -> int:
         "manifest_sha256": cohort_summary["manifest_sha256"],
         "split_manifest_sha256": split.split_sha256,
         "code_revision": source_revision,
+        "source_archive_sha256": os.environ["PROJECT07_SOURCE_ARCHIVE_SHA256"],
+        "benchmark_spec_sha256": _digest(root / "docs/CASE_DISJOINT_BENCHMARK_SPEC.md", "sha256"),
+        "model_training_policy": results["policy"],
+        "batch_size": 16,
+        "batch_order": "one seed-shuffled order materialized and reused across epochs",
+        "training_loss_reduction": "sum per batch; mean per graph for reporting",
+        "synthetic_training_preflight": preflight,
+        "hovernet_revision": HOVERNET_REVISION,
+        "determinism_scope": "strict classifier process; HoVer-Net subprocess uses its pinned inference implementation",
         "dependency_lock_sha256": dependency_hash,
         "device": {"type": "cuda", "name": device_name},
         "artifact_count": len(split.test),
         "class_counts": dict(Counter(record.label for record in split.test)),
         "artifact_hashes": {
             "graph": graph_set.artifact_sha256,
-            "checkpoint": CHECKPOINT_SHA256,
+            "segmentation_checkpoint": CHECKPOINT_SHA256,
             "hovernet_patch": patch_hash,
         },
         "positive_class": "LUSC",
@@ -203,15 +305,7 @@ def main() -> int:
     pending = []
     for model_name, model_result in results["models"].items():
         for seed_result in model_result["seeds"]:
-            provenance = {
-                **common,
-                "seed": seed_result["seed"],
-                "model": model_name,
-                "best_epoch": seed_result["best_epoch"],
-                "epochs_run": seed_result["epochs_run"],
-                "best_validation_loss": seed_result["best_validation_loss"],
-                "confidence_intervals_95": seed_result["confidence_intervals_95"],
-            }
+            provenance = _seed_provenance(common, model_name, model_result, seed_result)
             metrics = {
                 name: seed_result["metrics"][name]
                 for name in ("accuracy", "macro_f1", "auroc", "auprc")

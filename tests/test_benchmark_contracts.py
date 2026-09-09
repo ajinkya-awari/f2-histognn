@@ -413,8 +413,8 @@ def test_frozen_runner_trains_then_emits_case_level_results_only_after_success(m
 def test_kaggle_benchmark_entrypoint_freezes_approved_cohort_and_safety_caps():
     assert CASES_PER_CLASS == 50
     assert (TRAIN_PER_CLASS, VALIDATION_PER_CLASS, TEST_PER_CLASS) == (30, 10, 10)
-    assert MAX_INDIVIDUAL_SLIDE_BYTES == 2 * 1024**3
-    assert MAX_TOTAL_SLIDE_BYTES == 20 * 1024**3
+    assert MAX_INDIVIDUAL_SLIDE_BYTES == 3 * 1024**3
+    assert MAX_TOTAL_SLIDE_BYTES == 70 * 1024**3
 
 
 def test_benchmark_gdc_query_passes_integer_page_size_to_cli_query_adapter():

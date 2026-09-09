@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import hashlib
+import json
 
 import numpy as np
 import torch
@@ -37,6 +38,28 @@ class FrozenBenchmarkPolicy:
 
 
 FROZEN_POLICY = FrozenBenchmarkPolicy()
+
+
+def selected_state_sha256(state: Mapping[str, torch.Tensor]) -> str:
+    """Hash sorted tensor names, dtypes, shapes, and little-endian value bytes.
+
+    Length-prefixed fields make the representation unambiguous and independent
+    of state-dict insertion order, device, strides, or checkpoint serialization.
+    """
+
+    hasher = hashlib.sha256(b"f2-histognn-selected-state-v1\x00")
+    for name in sorted(state):
+        tensor = state[name].detach().cpu().contiguous()
+        array = tensor.numpy()
+        header = json.dumps(
+            {"name": name, "dtype": str(tensor.dtype), "shape": list(tensor.shape)},
+            sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+        ).encode("utf-8")
+        values = array.astype(array.dtype.newbyteorder("<"), copy=False).tobytes(order="C")
+        for field in (header, values):
+            hasher.update(len(field).to_bytes(8, "big"))
+            hasher.update(field)
+    return hasher.hexdigest()
 
 
 def frozen_run_matrix() -> tuple[tuple[str, int], ...]:
@@ -205,6 +228,9 @@ def run_frozen_benchmark(
                     "best_epoch": training_result.best_epoch,
                     "epochs_run": len(training_result.train_loss),
                     "best_validation_loss": training_result.best_validation_loss,
+                    "selected_state_sha256": selected_state_sha256(training_result.best_state_dict),
+                    "train_loss": list(training_result.train_loss),
+                    "validation_loss": list(training_result.validation_loss),
                     "metrics": metrics,
                     "confidence_intervals_95": intervals,
                 }
@@ -222,6 +248,7 @@ def run_frozen_benchmark(
         raise RuntimeError("benchmark did not complete every frozen model/seed run")
     return {
         "run_count": completed_runs,
+        "policy": asdict(policy),
         "case_counts": {
             name: len({graph.case_key for graph in graphs})
             for name, graphs in partitions.items()

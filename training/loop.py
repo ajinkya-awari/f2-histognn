@@ -158,9 +158,12 @@ def evaluate_loss(
             logits = model(x, edge_index, edge_attr, graph_batch)
             if logits.shape != (labels.numel(), 2):
                 raise ValueError("model logits must have shape [num_graphs, 2]")
-            total_loss += float(
-                nn.functional.cross_entropy(logits, labels, reduction="sum").item()
-            )
+            if not torch.isfinite(logits).all():
+                raise ValueError("non-finite validation logits")
+            loss = nn.functional.cross_entropy(logits, labels, reduction="sum")
+            if not torch.isfinite(loss):
+                raise ValueError("non-finite validation loss")
+            total_loss += float(loss.item())
             graph_count += labels.numel()
     model.train(was_training)
     if graph_count == 0:
@@ -206,9 +209,20 @@ def fit_model(
             logits = model(*inputs[:4])
             if logits.shape != (inputs[4].numel(), 2):
                 raise ValueError("model logits must have shape [num_graphs, 2]")
+            if not torch.isfinite(logits).all():
+                raise ValueError("non-finite training logits")
             loss = nn.functional.cross_entropy(logits, inputs[4], reduction="sum")
+            if not torch.isfinite(loss):
+                raise ValueError("non-finite training loss")
             loss.backward()
+            if any(
+                parameter.grad is not None and not torch.isfinite(parameter.grad).all()
+                for parameter in model.parameters()
+            ):
+                raise ValueError("non-finite training gradients")
             optimizer.step()
+            if any(not torch.isfinite(parameter).all() for parameter in model.parameters()):
+                raise ValueError("non-finite model parameters after optimizer step")
             total_train_loss += float(loss.detach().item())
             train_graph_count += inputs[4].numel()
         train_loss = total_train_loss / train_graph_count

@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "stage": "benchmark_preflight",
+  "status": "failed",
+  "provenance": {
+    "kernel_version": 11,
+    "code_revision": "ab19f287b7c2f42680b57772064e73c8496d4a7c",
+    "failure": "selected slide exceeds the 2 GiB individual safety boundary",
+    "downloaded_slide_bytes": 0,
+    "classifier_training_started": false,
+    "accepted_metrics": false,
+    "metadata_only_followup": {
+      "case_count": 100,
+      "class_counts": {"LUAD": 50, "LUSC": 50},
+      "largest_slide_bytes": 2232047646,
+      "total_file_bytes": 66921766880,
+      "manifest_sha256": "c1b66e133c8a8433f399d608df49da0d256f98465100ceaa0e3bcc01f15e30ec"
+    }
+  }
+}

@@ -52,7 +52,7 @@ Or run `scripts/verify_synthetic.ps1` on PowerShell / `scripts/verify_synthetic.
 
 Local planning-tree verification on 2026-09-07: **62 passed, 3 warnings, exit 0** in 13.17 seconds. Final standalone public-export verification on 2026-09-08: **62 passed, 3 warnings, exit 0** in 19.15 seconds. Both used Python 3.11.9, NumPy 2.4.6, PyTorch 2.12.1+cpu, PyTorch Geometric 2.7.0, and pytest 9.0.3. The warnings are one PyG distributed deprecation and two `torch.jit.script` deprecations. These are synthetic contract tests, not histology results.
 
-Draft benchmark-branch verification on 2026-09-09: **131 passed, 3 warnings, exit 0** in 16.93 seconds; compile also exited 0. The expanded count includes offline regression tests for GDC eligibility, sanitized evidence, streamed bounded downloads, HoVer-Net probability conditioning, case-disjoint splitting, case-level metrics, bootstrap intervals, best-checkpoint restoration, and the frozen run matrix. It is not real-data model-performance evidence.
+Draft benchmark-branch verification on 2026-09-09: **151 passed, 3 warnings, exit 0** in 21.17 seconds; compile also exited 0. The expanded count includes offline regression tests for GDC eligibility, sanitized evidence, streaming budgets, HoVer-Net probability conditioning, case-disjoint splitting, case-level metrics, bootstrap intervals, best-checkpoint restoration, non-finite training rejection, selected-state provenance, and all-model synthetic forward/backward preflight. It is not real-data model-performance evidence.
 
 ## Kaggle execution
 
@@ -78,7 +78,7 @@ Private kernel version 9 completed the bounded real-data graph smoke on 2026-09-
 
 ## Metrics and reproducibility
 
-Future classification reporting should define accuracy, macro-F1, AUROC, and AUPRC from graph-level predictions, with class counts and the positive-class convention stated. No number may be published without dataset/version, license, split hash, patient-disjointness evidence, seed, device, dependency lock, code revision, and artifact hashes. Class-imbalance policy remains a real-data decision because class counts are not yet known.
+The [approved benchmark specification](docs/CASE_DISJOINT_BENCHMARK_SPEC.md) freezes 100 cases, balanced 50/50, and a case-disjoint 60/20/20 split. Four tile softmax vectors are averaged per case. Accuracy and macro-F1 use argmax; AUROC and average precision (reported as AUPRC) treat LUSC as positive. Report each of three seeds, their means, and 2,000-resample stratified case-bootstrap intervals. No class weights are used because each partition is balanced. No number may be published without dataset/version, license, split hash, case-disjointness evidence, seed, device, dependency lock, code revision, and artifact hashes. Benchmark execution remains unverified; versions 10 and 11 stopped before slide acquisition.
 
 ## Privacy and security
 
@@ -94,10 +94,10 @@ The repository is a benchmark scaffold, not a completed scientific study. The bo
 
 ## Roadmap
 
-1. Review and accept the completed six-case TCGA nuclei/graph smoke.
-2. Prespecify the larger cohort, patient-disjoint split, training schedule, seeds, and uncertainty method.
-3. Run the smallest scientifically useful benchmark without tuning on the test partition.
-4. Report metrics only with complete provenance and uncertainty methodology.
+1. Execute the approved 100-case protocol without tuning on the test partition.
+2. Validate all 12 model/seed evidence records before accepting any metrics.
+3. Review the draft benchmark PR; do not merge incomplete runtime claims.
+4. Pursue independent external validation and explanation diagnostics as separate milestones.
 
 See [`DESIGN.md`](DESIGN.md), [`CITATIONS.md`](CITATIONS.md), and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for contracts and attribution.
 

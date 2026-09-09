@@ -87,3 +87,16 @@ Benchmark kernel version 10 stopped before metadata acquisition because the new
 entry point passed a payload mapping to the shared GDC query helper instead of
 its required integer page size. No slide bytes or metrics were produced. A
 focused regression fixes this boundary before any subsequent version.
+
+Version 11 stopped before slide acquisition at the initial individual-size cap.
+The unchanged 100-case cohort needs 66,921,766,880 transferred bytes, not that
+much resident disk. The reviewed streaming limits are now 3 GiB per slide,
+70 GiB total, and a 2 GiB free-disk reserve. Staging must run the benchmark
+subprocess with `timeout=14400`. No retry may change cohort membership,
+splits, model policy, or select favourable metrics.
+
+The runner now performs bounded synthetic CUDA forward/backward checks before
+downloads, persists private manifests, rejects non-finite training, and records
+selected classifier-state hashes, loss curves, policy, source archive hash, and
+three-seed means in sanitized evidence. These implementation changes are not
+evidence that a real benchmark has succeeded.

@@ -1,6 +1,6 @@
 # Case-disjoint benchmark specification
 
-Status: **approved design; implementation and execution pending**.
+Status: **approved design; implemented; benchmark execution not yet verified**.
 
 This document freezes the first exploratory F2 HistoGNN training benchmark
 before outcome data are produced. The benchmark is not a clinical study and
@@ -83,6 +83,27 @@ must not be used for diagnostic claims.
 - Stop on insufficient eligible cases, disk/cap violation, checksum failure,
   case overlap, missing graphs, non-finite values, shape drift, CUDA loss, or
   incomplete provenance. Partial metrics from a failed run are not accepted.
+
+## Operational preflight clarification (2026-09-09, before training)
+
+The unchanged seed-17 cohort metadata totals 66,921,766,880 bytes; its largest
+slide is 2,232,047,646 bytes. Kernel version 11 stopped before downloading slides
+because the initial 2 GiB-per-slide/20 GiB-total limits were insufficient.
+Execution now allows at most 3 GiB per slide and 70 GiB total transferred bytes,
+with one slide resident at a time and 2 GiB free-disk reserve checked before
+each download. No case is replaced to fit a size threshold. The staged runner
+has a four-hour wall-clock timeout; this is a limit, not a completion estimate.
+
+A synthetic 16-graph, 512-node-per-graph forward/backward optimizer step for each
+architecture must pass on CUDA before real slide acquisition. Local equivalents
+use tiny CPU fixtures only. Training uses batch size 16, one seed-shuffled batch
+order reused across epochs, summed batch cross-entropy for backpropagation, and
+mean per-graph losses for reporting. Non-finite logits, losses, gradients, or
+updated parameters fail closed. Selected classifier states are hashed canonically;
+weights and case predictions are not retained as public artifacts. Private cohort
+and split manifests exist only in ephemeral Kaggle storage, so reproducing a run
+after metadata changes requires recovering the same manifest; a hash alone is
+not a substitute for its membership records.
 
 ## Interpretation boundary
 
