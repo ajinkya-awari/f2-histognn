@@ -16,6 +16,7 @@ from data.benchmark import (
 from data.gdc import GDCSlideRecord
 from data.benchmark_graphs import (
     BenchmarkGraphError,
+    PrivateGraph,
     load_private_graphs,
     stream_slide_tiles,
 )
@@ -24,6 +25,13 @@ from training.evaluation import (
     aggregate_case_probabilities,
     binary_case_metrics,
     stratified_bootstrap_intervals,
+)
+from training.benchmark import (
+    FROZEN_POLICY,
+    FrozenBenchmarkPolicy,
+    frozen_run_matrix,
+    partition_private_graphs,
+    run_frozen_benchmark,
 )
 
 
@@ -291,3 +299,102 @@ def test_private_graph_loading_is_deterministic_and_enforces_four_graphs_per_cas
             json_dir,
             {key: value for key, value in mapping.items() if key != missing_key},
         )
+
+
+def test_frozen_benchmark_policy_defines_exactly_twelve_runs():
+    assert FROZEN_POLICY.hidden_dim == 32
+    assert FROZEN_POLICY.max_epochs == 100
+    assert FROZEN_POLICY.patience == 10
+    assert FROZEN_POLICY.learning_rate == 0.001
+    assert FROZEN_POLICY.weight_decay == 0.0001
+    assert FROZEN_POLICY.seeds == (17, 29, 43)
+    assert frozen_run_matrix() == tuple(
+        (model, seed)
+        for model in ("gcn", "graphsage", "gat", "graphgps")
+        for seed in (17, 29, 43)
+    )
+
+
+def test_private_graph_partition_follows_case_split_and_requires_four_graphs():
+    selected = select_balanced_cases(benchmark_records(3), per_class=3, seed=17)
+    split = stratified_case_split(
+        selected,
+        seed=17,
+        train_per_class=1,
+        validation_per_class=1,
+        test_per_class=1,
+    )
+    graphs = []
+    for record in selected:
+        case_key = hashlib.sha256(record.case_id.encode()).hexdigest()
+        label = 0 if record.label == "LUAD" else 1
+        for tile in range(4):
+            graphs.append(
+                PrivateGraph(
+                    tile_key=f"{case_key}-{tile}",
+                    case_key=case_key,
+                    label=label,
+                    features=np.ones((2, 7)),
+                    edge_index=np.array([[0, 1], [1, 0]]),
+                    edge_attr=np.ones((2, 1)),
+                )
+            )
+
+    partitions = partition_private_graphs(tuple(graphs), split, tiles_per_case=4)
+
+    assert {name: len(values) for name, values in partitions.items()} == {
+        "train": 8,
+        "validation": 8,
+        "test": 8,
+    }
+    with pytest.raises(ValueError, match="exactly 4"):
+        partition_private_graphs(tuple(graphs[:-1]), split, tiles_per_case=4)
+
+
+def test_frozen_runner_trains_then_emits_case_level_results_only_after_success(monkeypatch):
+    selected = select_balanced_cases(benchmark_records(3), per_class=3, seed=17)
+    split = stratified_case_split(
+        selected,
+        seed=17,
+        train_per_class=1,
+        validation_per_class=1,
+        test_per_class=1,
+    )
+    graphs = []
+    for record in selected:
+        case_key = hashlib.sha256(record.case_id.encode()).hexdigest()
+        label = 0 if record.label == "LUAD" else 1
+        for tile in range(4):
+            graphs.append(
+                PrivateGraph(
+                    tile_key=f"{case_key}-{tile}",
+                    case_key=case_key,
+                    label=label,
+                    features=np.array([[0, 0, 1, 0, 0, 0, 0], [1, 1, 1, 0, 0, 0, 0]], dtype=float),
+                    edge_index=np.array([[0, 1], [1, 0]]),
+                    edge_attr=np.ones((2, 1)),
+                )
+            )
+    partitions = partition_private_graphs(graphs, split)
+    policy = FrozenBenchmarkPolicy(
+        models=("gcn",),
+        seeds=(17,),
+        hidden_dim=4,
+        max_epochs=1,
+        patience=1,
+        bootstrap_resamples=20,
+    )
+
+    result = run_frozen_benchmark(
+        partitions,
+        split_sha256=split.split_sha256,
+        graph_sha256="a" * 64,
+        provenance={"scope": "synthetic unit test"},
+        device="cpu",
+        policy=policy,
+    )
+
+    assert result["run_count"] == 1
+    assert result["models"]["gcn"]["seeds"][0]["seed"] == 17
+    assert result["models"]["gcn"]["seeds"][0]["metrics"]["positive_class"] == "LUSC"
+    assert "case_key" not in repr(result)
