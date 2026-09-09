@@ -14,7 +14,7 @@ from data.benchmark import (
     select_balanced_cases,
     stratified_case_split,
 )
-from data.gdc import GDCSlideRecord
+from data.gdc import GDCManifestError, GDCSlideRecord
 from data.benchmark_graphs import (
     BenchmarkGraphError,
     PrivateGraph,
@@ -41,6 +41,7 @@ from scripts.kaggle_case_disjoint_benchmark import (
     TEST_PER_CLASS,
     TRAIN_PER_CLASS,
     VALIDATION_PER_CLASS,
+    _query_eligible_records,
 )
 
 
@@ -414,6 +415,24 @@ def test_kaggle_benchmark_entrypoint_freezes_approved_cohort_and_safety_caps():
     assert (TRAIN_PER_CLASS, VALIDATION_PER_CLASS, TEST_PER_CLASS) == (30, 10, 10)
     assert MAX_INDIVIDUAL_SLIDE_BYTES == 2 * 1024**3
     assert MAX_TOTAL_SLIDE_BYTES == 20 * 1024**3
+
+
+def test_benchmark_gdc_query_passes_integer_page_size_to_cli_query_adapter():
+    seen = []
+
+    def query(page_size):
+        seen.append(page_size)
+        return {
+            "data": {
+                "hits": [],
+                "pagination": {"count": 0, "total": 0},
+            }
+        }
+
+    with pytest.raises(GDCManifestError, match="non-empty"):
+        _query_eligible_records(query)
+
+    assert seen == [10000]
 
 
 def test_benchmark_notebook_is_unexecuted_and_calls_only_the_frozen_runner():

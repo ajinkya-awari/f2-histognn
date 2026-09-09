@@ -22,7 +22,7 @@ import torch
 from data.benchmark import sanitized_split_summary, select_balanced_cases, stratified_case_split
 from data.benchmark_graphs import load_private_graphs, stream_slide_tiles
 from data.evidence import build_stage_evidence, write_evidence
-from data.gdc import build_gdc_query_payload, extract_gdc_response_hits, filter_diagnostic_hits, manifest_summary, parse_gdc_hits
+from data.gdc import extract_gdc_response_hits, filter_diagnostic_hits, manifest_summary, parse_gdc_hits
 from data.tiles import select_tissue_tile_origins
 from scripts.kaggle_real_data_discovery import PILOT_SEED, _query
 from scripts.kaggle_real_data_pilot import (
@@ -103,6 +103,13 @@ def _extract_one_slide(record, slide_path: Path, tile_dir: Path) -> tuple[Path, 
     return tuple(paths)
 
 
+def _query_eligible_records(query=_query):
+    """Call the shared GDC query with its required integer page-size contract."""
+
+    response = query(10000)
+    return parse_gdc_hits(filter_diagnostic_hits(extract_gdc_response_hits(response)))
+
+
 def main() -> int:
     started = time.monotonic()
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
@@ -125,8 +132,7 @@ def main() -> int:
     evidence_dir = working / "project07-evidence"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     device_name = _require_cuda_execution()
-    response = _query(build_gdc_query_payload())
-    eligible = parse_gdc_hits(filter_diagnostic_hits(extract_gdc_response_hits(response)))
+    eligible = _query_eligible_records()
     cohort = select_balanced_cases(eligible, per_class=CASES_PER_CLASS, seed=PILOT_SEED)
     if any(record.file_size > MAX_INDIVIDUAL_SLIDE_BYTES for record in cohort):
         raise RuntimeError("selected slide exceeds the 2 GiB individual safety boundary")

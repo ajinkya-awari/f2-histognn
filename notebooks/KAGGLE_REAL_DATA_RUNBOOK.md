@@ -82,3 +82,8 @@ source archive after offline tests and release scans pass. The runner streams
 graphs per case, enforces the 60/20/20 case-disjoint split, restores the lowest
 validation-loss checkpoint, and evaluates the test cases once for each of four
 models and three seeds. It writes no metric evidence unless all 12 runs finish.
+
+Benchmark kernel version 10 stopped before metadata acquisition because the new
+entry point passed a payload mapping to the shared GDC query helper instead of
+its required integer page size. No slide bytes or metrics were produced. A
+focused regression fixes this boundary before any subsequent version.
