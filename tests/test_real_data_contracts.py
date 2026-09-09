@@ -25,7 +25,6 @@ from scripts.kaggle_real_data_pilot import (
     _bounded_copy,
     _dependency_lock_hash,
     _require_kaggle_private_runtime,
-    _source_tree_hash,
 )
 
 
@@ -533,9 +532,10 @@ def test_private_kaggle_runtime_gate_requires_kaggle_marker_private_attestation_
     marker.parent.mkdir()
     marker.write_text("# runtime marker\n", encoding="utf-8")
     valid = {
+        "KAGGLE_KERNEL_RUN_TYPE": "Batch",
         "PROJECT07_PRIVATE_KERNEL": "true",
         "PROJECT07_SOURCE_REVISION": "a" * 40,
-        "PROJECT07_SOURCE_TREE_SHA256": "b" * 64,
+        "PROJECT07_SOURCE_ARCHIVE_SHA256": "b" * 64,
     }
     assert _require_kaggle_private_runtime(
         valid, working, temporary, input_directory, marker, "b" * 64
@@ -547,14 +547,6 @@ def test_private_kaggle_runtime_gate_requires_kaggle_marker_private_attestation_
             _require_kaggle_private_runtime(
                 invalid, working, temporary, input_directory, marker, "b" * 64
             )
-
-
-def test_source_tree_hash_is_stable_and_detects_changed_bytes(tmp_path):
-    (tmp_path / "a.txt").write_text("one", encoding="utf-8")
-    first = _source_tree_hash(tmp_path)
-    assert first == _source_tree_hash(tmp_path)
-    (tmp_path / "a.txt").write_text("two", encoding="utf-8")
-    assert _source_tree_hash(tmp_path) != first
 
 
 def test_hovernet_patch_preserves_softmax_probabilities_for_each_instance(tmp_path):

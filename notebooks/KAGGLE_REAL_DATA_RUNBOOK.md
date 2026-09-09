@@ -30,10 +30,9 @@ private ephemeral Kaggle storage and is not redistributed.
 5. Poll to `COMPLETE`, `ERROR`, `CANCELLED`, missing status, or the bounded
    timeout. The pre-push check must confirm `is_private: true`; the generated
    bootstrap attests that check to the runtime. Before acquisition, the script
-   also requires Kaggle's `/kaggle/lib/kaggle/gcp.py` runtime marker, a full
-   reviewed Git revision, and a byte-exact source-tree SHA-256 match. Kaggle's
-   older `KAGGLE_KERNEL_RUN_TYPE` variable is not relied upon because it was
-   absent in the observed batch runtime.
+   also requires Kaggle's `KAGGLE_KERNEL_RUN_TYPE` and
+   `/kaggle/lib/kaggle/gcp.py` runtime markers, a full reviewed Git revision,
+   and a byte-exact staged source-archive SHA-256 match.
 6. Download outputs once. Inspect only `project07-evidence/*.json` as public
    evidence.
 

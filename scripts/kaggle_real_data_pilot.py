@@ -72,25 +72,6 @@ def _dependency_lock_hash(root: Path) -> str:
     return hasher.hexdigest()
 
 
-def _source_tree_hash(root: Path) -> str:
-    """Hash the staged public source while ignoring interpreter cache files."""
-
-    hasher = hashlib.sha256()
-    files = sorted(
-        path
-        for path in root.rglob("*")
-        if path.is_file()
-        and ".git" not in path.parts
-        and "__pycache__" not in path.parts
-        and path.suffix != ".pyc"
-    )
-    for path in files:
-        relative = path.relative_to(root).as_posix()
-        hasher.update(relative.encode("utf-8") + b"\0")
-        hasher.update(path.read_bytes())
-    return hasher.hexdigest()
-
-
 def _run(command: list[str], *, cwd: Path | None = None) -> None:
     subprocess.run(command, cwd=cwd, check=True)
 
@@ -101,19 +82,20 @@ def _require_kaggle_private_runtime(
     temporary: Path,
     input_directory: Path,
     kaggle_marker: Path,
-    observed_tree_hash: str,
+    observed_archive_hash: str,
 ) -> str:
     revision = environment.get("PROJECT07_SOURCE_REVISION", "")
-    expected_tree_hash = environment.get("PROJECT07_SOURCE_TREE_SHA256", "")
+    expected_archive_hash = environment.get("PROJECT07_SOURCE_ARCHIVE_SHA256", "")
     if (
         not working.is_dir()
         or not temporary.is_dir()
         or not input_directory.is_dir()
         or not kaggle_marker.is_file()
+        or not environment.get("KAGGLE_KERNEL_RUN_TYPE")
         or environment.get("PROJECT07_PRIVATE_KERNEL") != "true"
         or re.fullmatch(r"[0-9a-f]{40}", revision) is None
-        or re.fullmatch(r"[0-9a-f]{64}", expected_tree_hash) is None
-        or expected_tree_hash != observed_tree_hash
+        or re.fullmatch(r"[0-9a-f]{64}", expected_archive_hash) is None
+        or expected_archive_hash != observed_archive_hash
     ):
         raise RuntimeError("refusing real-data execution without Kaggle private-runtime attestation")
     return revision
@@ -331,7 +313,9 @@ def main() -> int:
             temporary=Path("/kaggle/temp"),
             input_directory=Path("/kaggle/input"),
             kaggle_marker=Path("/kaggle/lib/kaggle/gcp.py"),
-            observed_tree_hash=_source_tree_hash(root),
+            observed_archive_hash=_digest(
+                Path("/kaggle/temp/project07-source.zip"), "sha256"
+            ),
         )
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
