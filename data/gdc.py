@@ -19,6 +19,7 @@ _PROJECT_TO_LABEL = {"TCGA-LUAD": "LUAD", "TCGA-LUSC": "LUSC"}
 _MD5_PATTERN = re.compile(r"^[0-9a-fA-F]{32}$")
 _DIAGNOSTIC_SLIDE_PATTERN = re.compile(r"-DX[0-9A-Z]+$")
 _DIAGNOSTIC_FILE_PATTERN = re.compile(r"-DX[0-9A-Z]+(?:\.[^.]+)?\.svs$", re.IGNORECASE)
+PILOT_MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
 
 
 def build_gdc_query_payload(*, page_size: int = 10000) -> dict[str, Any]:
@@ -234,6 +235,7 @@ def select_case_disjoint_pilot(
     *,
     per_class: int,
     seed: int = 0,
+    max_total_bytes: int = PILOT_MAX_TOTAL_BYTES,
 ) -> tuple[GDCSlideRecord, ...]:
     """Select a balanced, stable pilot with at most one slide per TCGA case."""
 
@@ -241,6 +243,8 @@ def select_case_disjoint_pilot(
         raise GDCManifestError("per_class must be a positive integer")
     if type(seed) is not int:
         raise GDCManifestError("seed must be an integer")
+    if type(max_total_bytes) is not int or max_total_bytes <= 0:
+        raise GDCManifestError("max_total_bytes must be a positive integer")
 
     by_case: dict[str, list[GDCSlideRecord]] = defaultdict(list)
     for record in records:
@@ -248,16 +252,24 @@ def select_case_disjoint_pilot(
             raise GDCManifestError("pilot input must contain validated GDC slide records")
         by_case[record.case_submitter_id].append(record)
 
-    one_per_case = [sorted(case_records, key=lambda item: item.file_id)[0] for case_records in by_case.values()]
+    one_per_case = [
+        sorted(case_records, key=lambda item: (item.file_size, item.file_id))[0]
+        for case_records in by_case.values()
+    ]
+    per_record_limit = max_total_bytes // (2 * per_class)
     selected: list[GDCSlideRecord] = []
     for label in ("LUAD", "LUSC"):
         candidates = sorted(
-            (record for record in one_per_case if record.label == label),
+            (
+                record
+                for record in one_per_case
+                if record.label == label and record.file_size <= per_record_limit
+            ),
             key=lambda item: (_seed_rank(seed, item.case_submitter_id), item.file_id),
         )
         if len(candidates) < per_class:
             raise GDCManifestError(
-                f"insufficient {label} cases: need {per_class}, found {len(candidates)}"
+                f"insufficient bounded {label} cases: need {per_class}, found {len(candidates)}"
             )
         selected.extend(candidates[:per_class])
     return tuple(sorted(selected))
@@ -279,6 +291,7 @@ def manifest_summary(records: Iterable[GDCSlideRecord]) -> dict[str, Any]:
     return {
         "record_count": len(values),
         "case_count": len({record.case_submitter_id for record in values}),
+        "total_file_bytes": sum(record.file_size for record in values),
         "class_counts": {
             label: sum(record.label == label for record in values)
             for label in ("LUAD", "LUSC")

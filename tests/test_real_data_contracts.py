@@ -147,6 +147,7 @@ def test_pilot_selection_is_seeded_bounded_balanced_and_one_slide_per_case():
         "LUSC": 3,
     }
     assert len({record.case_submitter_id for record in first}) == len(first)
+    assert sum(record.file_size for record in first) <= 2 * 1024 * 1024 * 1024
 
 
 def test_pilot_selection_rejects_invalid_limit_and_insufficient_class():
@@ -156,6 +157,8 @@ def test_pilot_selection_rejects_invalid_limit_and_insufficient_class():
         select_case_disjoint_pilot(records, per_class=0)
     with pytest.raises(GDCManifestError, match="LUSC"):
         select_case_disjoint_pilot(records, per_class=1)
+    with pytest.raises(GDCManifestError, match="max_total_bytes"):
+        select_case_disjoint_pilot(records, per_class=1, max_total_bytes=0)
 
 
 def test_manifest_summary_exposes_counts_and_hash_but_no_case_identifiers():
@@ -170,6 +173,7 @@ def test_manifest_summary_exposes_counts_and_hash_but_no_case_identifiers():
 
     assert summary["record_count"] == 2
     assert summary["case_count"] == 2
+    assert summary["total_file_bytes"] == 2468
     assert summary["class_counts"] == {"LUAD": 1, "LUSC": 1}
     assert len(summary["manifest_sha256"]) == 64
     assert "TCGA-AA-0001" not in repr(summary)

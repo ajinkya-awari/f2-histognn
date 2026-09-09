@@ -18,6 +18,7 @@ from data.gdc import (
     extract_gdc_response_hits,
     filter_diagnostic_hits,
     manifest_summary,
+    PILOT_MAX_TOTAL_BYTES,
     parse_gdc_hits,
     select_case_disjoint_pilot,
 )
@@ -63,7 +64,10 @@ def main() -> int:
     response = _query(build_gdc_query_payload()["size"])
     records = parse_gdc_hits(filter_diagnostic_hits(extract_gdc_response_hits(response)))
     pilot = select_case_disjoint_pilot(
-        records, per_class=PILOT_PER_CLASS, seed=PILOT_SEED
+        records,
+        per_class=PILOT_PER_CLASS,
+        seed=PILOT_SEED,
+        max_total_bytes=PILOT_MAX_TOTAL_BYTES,
     )
     pilot_summary = manifest_summary(pilot)
 

@@ -26,6 +26,7 @@ from data.gdc import (
     extract_gdc_response_hits,
     filter_diagnostic_hits,
     manifest_summary,
+    PILOT_MAX_TOTAL_BYTES,
     parse_gdc_hits,
     select_case_disjoint_pilot,
 )
@@ -46,7 +47,7 @@ from scripts.kaggle_real_data_discovery import (
 
 
 CHECKPOINT_SHA256 = "4a1463467737f81203a0513f794276cbcbbd6bb470969584f314167c6acef081"
-MAX_TOTAL_SLIDE_BYTES = 2 * 1024 * 1024 * 1024
+MAX_TOTAL_SLIDE_BYTES = PILOT_MAX_TOTAL_BYTES
 TILES_PER_SLIDE = 4
 TILE_PIXELS_AT_40X = 256
 MAX_NODES_PER_GRAPH = 512
@@ -340,7 +341,12 @@ def main() -> int:
 
     response = _query(10000)
     records = parse_gdc_hits(filter_diagnostic_hits(extract_gdc_response_hits(response)))
-    pilot = select_case_disjoint_pilot(records, per_class=PILOT_PER_CLASS, seed=PILOT_SEED)
+    pilot = select_case_disjoint_pilot(
+        records,
+        per_class=PILOT_PER_CLASS,
+        seed=PILOT_SEED,
+        max_total_bytes=MAX_TOTAL_SLIDE_BYTES,
+    )
     summary = manifest_summary(pilot)
     checkout, checkpoint, patch_hash = _prepare_hovernet(private)
     downloaded, downloaded_bytes = _download_slides(pilot, private)

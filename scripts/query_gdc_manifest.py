@@ -19,6 +19,7 @@ from data.gdc import (
     extract_gdc_response_hits,
     filter_diagnostic_hits,
     manifest_summary,
+    PILOT_MAX_TOTAL_BYTES,
     parse_gdc_hits,
     select_case_disjoint_pilot,
 )
@@ -78,7 +79,12 @@ def main() -> int:
     try:
         response = _query(args.page_size)
         records = parse_gdc_hits(filter_diagnostic_hits(extract_gdc_response_hits(response)))
-        pilot = select_case_disjoint_pilot(records, per_class=args.per_class, seed=args.seed)
+        pilot = select_case_disjoint_pilot(
+            records,
+            per_class=args.per_class,
+            seed=args.seed,
+            max_total_bytes=PILOT_MAX_TOTAL_BYTES,
+        )
         queried_at = _timestamp()
         private_payload = {
             "schema_version": "1.0",
@@ -108,6 +114,7 @@ def main() -> int:
                 "eligible_manifest_sha256": eligible_summary["manifest_sha256"],
                 "record_count": pilot_summary["record_count"],
                 "case_count": pilot_summary["case_count"],
+                "total_file_bytes": pilot_summary["total_file_bytes"],
                 "class_counts": pilot_summary["class_counts"],
                 "manifest_sha256": pilot_summary["manifest_sha256"],
                 "selection_seed": args.seed,
