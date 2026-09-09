@@ -226,6 +226,7 @@ def fit_model(
             if stale_epochs >= config.patience:
                 break
 
+    model.load_state_dict(best_state)
     return TrainingResult(
         train_loss=tuple(train_losses),
         validation_loss=tuple(validation_losses),

@@ -128,3 +128,33 @@ def test_requested_cuda_fails_explicitly_when_unavailable(monkeypatch):
 
     with pytest.raises(RuntimeError, match="CUDA"):
         evaluate_loss(_FixedLossModel(), [_edgeless_batch(1)], device="cuda")
+
+
+class _DivergingValidationModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.score = torch.nn.Parameter(torch.tensor(0.0))
+
+    def forward(self, x, edge_index, edge_attr, batch):
+        graph_count = int(batch.max().item()) + 1
+        return torch.stack((-self.score, self.score)).repeat(graph_count, 1)
+
+
+def test_fit_model_restores_the_best_validation_state_before_returning():
+    model = _DivergingValidationModel()
+    train = _edgeless_batch(1)
+    train.y = torch.ones(1, dtype=torch.long)
+    validation = _edgeless_batch(1)
+    config = TrainingConfig(
+        seed=17,
+        split_hash="split",
+        preprocessing_hash="prep",
+        max_epochs=4,
+        patience=2,
+        learning_rate=0.1,
+    )
+
+    result = fit_model(model, [train], [validation], config, {"seed": 17})
+
+    assert result.best_epoch == 0
+    assert torch.equal(model.state_dict()["score"], result.best_state_dict["score"])
