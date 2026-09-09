@@ -2,9 +2,9 @@
 
 Synthetic-first, leakage-aware nuclei-graph contracts for an exploratory LUAD/LUSC classification benchmark.
 
-> **Verified boundary:** implementation and 62 synthetic/offline tests pass locally and on private Kaggle version 2. No real histopathology benchmark, clinical result, model checkpoint, or performance metric is claimed.
+> **Verified boundary:** implementation and synthetic/offline tests pass locally and on private Kaggle. Private Kaggle version 9 also completed the bounded six-case real-data nuclei/graph smoke. No trained real-data benchmark, clinical result, released model checkpoint, or performance metric is claimed.
 
-> **Real-data work:** the TCGA LUAD/LUSC route is approved and tracked in [issue #1](https://github.com/ajinkya-awari/f2-histognn/issues/1). A corrected metadata-only preflight passed with explicit primary-tumor diagnostic-slide filtering and zero slide bytes; nuclei/graph-smoke evidence remains **pending** in a draft pull request. See the [prespecified protocol](docs/REAL_DATA_BENCHMARK_PROTOCOL.md).
+> **Real-data work:** the TCGA LUAD/LUSC route is approved and tracked in [issue #1](https://github.com/ajinkya-awari/f2-histognn/issues/1). A corrected metadata-only preflight and the prespecified nuclei/graph smoke passed. The feature branch and pull request remain draft while a larger case-disjoint benchmark is prespecified. See the [protocol](docs/REAL_DATA_BENCHMARK_PROTOCOL.md) and [sanitized smoke evidence](evidence/real_data_graph_smoke_2026-09-09T115728Z.json).
 
 ## Problem
 
@@ -27,7 +27,7 @@ Each nucleus is a node with exactly seven features: normalized `x`, normalized `
 
 ## Dataset boundary and leakage policy
 
-No slide, patient record, restricted annotation, embedding, or model weight is included. Labels may be derived only from approved metadata with an exact, bijective `LUAD`/`LUSC` mapping. Patient/case groups are split before training, and the split contract rejects group overlap. Open-access TCGA diagnostic slides, private Kaggle compute, and pinned HoVer-Net PanNuke inference are approved for the bounded protocol; successful execution is not yet claimed.
+No slide, patient record, restricted annotation, embedding, or model weight is included. Labels may be derived only from approved metadata with an exact, bijective `LUAD`/`LUSC` mapping. Patient/case groups must be split before training, and the split contract rejects group overlap. Open-access TCGA diagnostic slides, private Kaggle compute, and pinned HoVer-Net PanNuke inference were used only for the bounded graph smoke; raw artifacts remained private and ephemeral.
 
 ## Installation
 
@@ -52,13 +52,15 @@ Or run `scripts/verify_synthetic.ps1` on PowerShell / `scripts/verify_synthetic.
 
 Local planning-tree verification on 2026-09-07: **62 passed, 3 warnings, exit 0** in 13.17 seconds. Final standalone public-export verification on 2026-09-08: **62 passed, 3 warnings, exit 0** in 19.15 seconds. Both used Python 3.11.9, NumPy 2.4.6, PyTorch 2.12.1+cpu, PyTorch Geometric 2.7.0, and pytest 9.0.3. The warnings are one PyG distributed deprecation and two `torch.jit.script` deprecations. These are synthetic contract tests, not histology results.
 
-Draft real-data-gate verification on 2026-09-09: **110 passed, 3 warnings, exit 0** in 17.39 seconds; compile also exited 0, and every notebook parsed as JSON in the preceding consolidated pass. The expanded count includes offline regression tests for GDC eligibility, sanitized evidence, bounded downloads, HoVer-Net probability conditioning, and runtime/source-attestation gates. It is not real-data model-performance evidence.
+Draft real-data-gate verification on 2026-09-09: **110 passed, 3 warnings, exit 0** in 19.94 seconds; compile also exited 0, and every notebook parsed as JSON in the preceding consolidated pass. The expanded count includes offline regression tests for GDC eligibility, sanitized evidence, bounded downloads, HoVer-Net probability conditioning, and runtime/source-attestation gates. It is not real-data model-performance evidence.
 
 ## Kaggle execution
 
 Follow [`notebooks/KAGGLE_RUNBOOK_07-f2-histognn.md`](notebooks/KAGGLE_RUNBOOK_07-f2-histognn.md) and execute the notebook one gate at a time. Private kernel `ajinkya1225/07-f2-histognn`, version 2, completed on 2026-09-08: **62 passed, 3 warnings, exit 0** in 15.01 seconds on CPU. It used Python 3.12.13, NumPy 2.4.6, PyTorch 2.12.1, PyTorch Geometric 2.7.0, and pytest 9.0.3. The PyTorch build reported CUDA 13.0, but CUDA was unavailable at runtime with zero visible GPUs; no GPU training ran. Version 1 remains a documented source-staging failure.
 
 The separately gated real-data route is documented in [`notebooks/KAGGLE_REAL_DATA_RUNBOOK.md`](notebooks/KAGGLE_REAL_DATA_RUNBOOK.md). Dependency discovery verified the pinned HoVer-Net revision and observed a 150,996,114-byte checkpoint with SHA-256 `4a1463467737f81203a0513f794276cbcbbd6bb470969584f314167c6acef081`; it downloaded zero slide bytes and intentionally stopped for hash pinning. This is dependency evidence, not graph-smoke or benchmark evidence.
+
+Private kernel version 9 completed the bounded real-data graph smoke on 2026-09-09 from source revision `2cbdb6f103de559aa6706d05a42527dbcff8feaa`. It checksum-verified 992,062,769 slide bytes for six distinct cases (3 LUAD, 3 LUSC), extracted 24 deterministic tiles, produced 24 graphs with 677 sampled nuclei, and verified `[1, 2]` forward outputs for GCN, GraphSAGE, GAT, and GraphGPS on a Tesla P100-PCIE-16GB. Runtime was 171.382 seconds with Python 3.12.13, PyTorch 2.7.1+cu126, PyTorch Geometric 2.7.0, and CUDA 12.6. The [sanitized evidence](evidence/real_data_graph_smoke_2026-09-09T115728Z.json) has SHA-256 `ae186e34aadfda523b6625dddefdbcef52309fae470f832a3a891982b9db1bc6`. These are pipeline-smoke counts, not benchmark metrics.
 
 ## Verification states
 
@@ -69,7 +71,7 @@ The separately gated real-data route is documented in [`notebooks/KAGGLE_REAL_DA
 | Kaggle source-only run | Version 2 completed and verified |
 | Kaggle synthetic graph smoke | Verified through 62 synthetic contract tests on CPU |
 | GDC primary-diagnostic metadata reader and deterministic six-case manifest | Corrected live metadata-only preflight passed; zero slide bytes |
-| Real-data nuclei and graph smoke | Approved; awaiting Kaggle evidence |
+| Real-data nuclei and graph smoke | Kaggle version 9 completed; sanitized evidence verified |
 | Real LUAD/LUSC benchmark and metrics | Not verified |
 | GPU training or performance | Not run / not verified |
 | Deployment or clinical use | Out of scope / not verified |
@@ -88,11 +90,11 @@ Future classification reporting should define accuracy, macro-F1, AUROC, and AUP
 
 ## Limitations
 
-The repository is a benchmark scaffold, not a completed scientific study. It has no approved real dataset, real nuclei-extraction pipeline, external validation cohort, calibrated uncertainty analysis, model-selection result, or clinical evaluation. The generic top-level package names are retained for compatibility and may conflict in unusually crowded Python environments.
+The repository is a benchmark scaffold, not a completed scientific study. The bounded TCGA/HoVer-Net graph pipeline is verified, but no larger case-disjoint training cohort, external validation cohort, calibrated uncertainty analysis, model-selection result, or clinical evaluation exists. The generic top-level package names are retained for compatibility and may conflict in unusually crowded Python environments.
 
 ## Roadmap
 
-1. Complete and review the bounded six-case TCGA nuclei/graph smoke on private Kaggle.
+1. Review and accept the completed six-case TCGA nuclei/graph smoke.
 2. Prespecify the larger cohort, patient-disjoint split, training schedule, seeds, and uncertainty method.
 3. Run the smallest scientifically useful benchmark without tuning on the test partition.
 4. Report metrics only with complete provenance and uncertainty methodology.

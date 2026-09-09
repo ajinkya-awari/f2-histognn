@@ -1,6 +1,6 @@
 # Kaggle real-data runbook
 
-Status: **approved; graph-smoke evidence pending**. This runbook is separate
+Status: **graph-smoke passed on private kernel version 9**. This runbook is separate
 from the source-only synthetic notebook.
 
 ## Fixed inputs
@@ -62,3 +62,13 @@ computed by this notebook.
 A larger patient-disjoint benchmark requires a separate, prespecified cohort
 size, split, training schedule, class-imbalance policy, seed set, and uncertainty
 method after this smoke is accepted.
+
+## Accepted smoke evidence
+
+Kernel version 9 completed on 2026-09-09 from source revision
+`2cbdb6f103de559aa6706d05a42527dbcff8feaa`. The sanitized record is
+`evidence/real_data_graph_smoke_2026-09-09T115728Z.json` with SHA-256
+`ae186e34aadfda523b6625dddefdbcef52309fae470f832a3a891982b9db1bc6`.
+It records six cases, 24 tiles/graphs, 677 sampled nuclei, verified four-model
+forward shapes, checksum-verified inputs, Tesla P100 execution, and zero
+benchmark metrics or published raw artifacts.

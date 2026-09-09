@@ -1,10 +1,10 @@
 # Real-data benchmark protocol
 
-Status: **approved; awaiting real-data evidence**.
+Status: **bounded nuclei/graph smoke passed; benchmark prespecification pending**.
 
-This protocol defines the first real-data route for F2 HistoGNN. It does not
-claim that a pilot or benchmark has succeeded. The released synthetic contracts
-remain the only accepted execution evidence until the gates below pass.
+This protocol defines the first real-data route for F2 HistoGNN. The bounded
+six-case nuclei/graph smoke passed on private Kaggle version 9; it is pipeline
+evidence, not a trained pilot or benchmark result.
 
 ## Scientific question
 
@@ -104,5 +104,6 @@ never implicitly successful.
 
 Development occurs in a feature branch and draft pull request. `main` continues
 to describe the verified synthetic release. The tracking issue and draft pull
-request stay marked **awaiting real-data evidence** until the Kaggle artifacts
-are downloaded, sanitized, reviewed, and linked. Merge is not automatic.
+request record the downloaded, sanitized Kaggle evidence. They remain draft
+while the larger benchmark is separately prespecified and reviewed. Merge is
+not automatic.
