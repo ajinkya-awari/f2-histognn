@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
+import json
 
 import numpy as np
 import pytest
@@ -12,6 +14,11 @@ from data.benchmark import (
     stratified_case_split,
 )
 from data.gdc import GDCSlideRecord
+from data.benchmark_graphs import (
+    BenchmarkGraphError,
+    load_private_graphs,
+    stream_slide_tiles,
+)
 from training.evaluation import (
     BenchmarkEvaluationError,
     aggregate_case_probabilities,
@@ -199,3 +206,88 @@ def test_case_metrics_reject_single_class_and_invalid_probability_rows():
         binary_case_metrics(np.array([[0.8, 0.2], [0.7, 0.3]]), np.array([0, 0]))
     with pytest.raises(BenchmarkEvaluationError, match="sum to 1"):
         binary_case_metrics(np.array([[0.8, 0.3], [0.2, 0.8]]), np.array([0, 1]))
+
+
+def test_stream_slide_tiles_removes_each_slide_and_maps_exactly_four_tiles(tmp_path):
+    payload = b"data"
+    records = tuple(
+        replace(record, file_size=len(payload), md5sum=hashlib.md5(payload).hexdigest())
+        for record in select_balanced_cases(benchmark_records(2), per_class=1, seed=17)
+    )
+
+    def fetch(record, destination):
+        destination.write_bytes(payload)
+
+    def extract(record, slide_path, tile_dir):
+        assert slide_path.is_file()
+        paths = []
+        for index in range(4):
+            path = tile_dir / f"{record.file_id}-{index}.png"
+            path.write_bytes(b"tile")
+            paths.append(path)
+        return tuple(paths)
+
+    result = stream_slide_tiles(records, tmp_path / "private", fetch, extract)
+
+    assert result.total_slide_bytes == 8
+    assert len(result.tile_to_case) == 8
+    assert not list((tmp_path / "private").rglob("*.svs"))
+    assert {value[1] for value in result.tile_to_case.values()} == {0, 1}
+
+
+def test_stream_slide_tiles_rejects_paths_outside_private_tile_root(tmp_path):
+    payload = b"data"
+    record = replace(
+        benchmark_records(1)[0],
+        file_size=len(payload),
+        md5sum=hashlib.md5(payload).hexdigest(),
+    )
+    outside = tuple(tmp_path / f"outside-{index}.png" for index in range(4))
+
+    def fetch(_record, destination):
+        destination.write_bytes(payload)
+
+    def extract(_record, _slide_path, _tile_dir):
+        for path in outside:
+            path.write_bytes(b"tile")
+        return outside
+
+    with pytest.raises(BenchmarkGraphError, match="private tile root"):
+        stream_slide_tiles((record,), tmp_path / "private", fetch, extract)
+    assert all(path.is_file() for path in outside)
+    assert not list((tmp_path / "private").rglob("*.svs"))
+
+
+def test_private_graph_loading_is_deterministic_and_enforces_four_graphs_per_case(tmp_path):
+    json_dir = tmp_path / "json"
+    json_dir.mkdir()
+    mapping = {}
+    for case_index, label in enumerate((0, 1)):
+        for tile_index in range(4):
+            stem = f"case-{case_index}-tile-{tile_index}"
+            mapping[stem] = (f"private-{case_index}", label)
+            nuclei = {
+                str(index): {
+                    "centroid": [float(index), float(index % 2)],
+                    "type": 1,
+                    "probs": [0.0, 0.6, 0.1, 0.1, 0.1, 0.1],
+                }
+                for index in range(3)
+            }
+            (json_dir / f"{stem}.json").write_text(json.dumps({"nuc": nuclei}), encoding="utf-8")
+
+    first = load_private_graphs(json_dir, mapping, tiles_per_case=4, max_nodes=512)
+    second = load_private_graphs(json_dir, dict(reversed(tuple(mapping.items()))), tiles_per_case=4, max_nodes=512)
+
+    assert first.artifact_sha256 == second.artifact_sha256
+    assert len(first.graphs) == 8
+    assert {graph.label for graph in first.graphs} == {0, 1}
+    assert all(graph.features.shape == (3, 7) for graph in first.graphs)
+
+    missing_key = list(mapping)[-1]
+    (json_dir / f"{missing_key}.json").unlink()
+    with pytest.raises(BenchmarkGraphError, match="exactly 4"):
+        load_private_graphs(
+            json_dir,
+            {key: value for key, value in mapping.items() if key != missing_key},
+        )
