@@ -3,6 +3,8 @@
 # doing so would replace Kaggle's CUDA-enabled PyTorch stack.
 docopt==0.6.2
 gdown==5.2.0
+imgaug==0.4.0
+numpy==1.26.4
 openslide-bin==4.0.0.10
 openslide-python==1.4.2
 torch-geometric==2.7.0

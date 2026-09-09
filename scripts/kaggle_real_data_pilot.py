@@ -139,6 +139,10 @@ def _prepare_hovernet(private: Path) -> tuple[Path, Path, str]:
         raise RuntimeError("HoVer-Net checkpoint SHA-256 mismatch")
 
     patch_hash = patch_hovernet_checkout(checkout)
+    _run(
+        [sys.executable, "-c", "from infer.tile import InferManager"],
+        cwd=checkout,
+    )
     return checkout, checkpoint, patch_hash
 
 

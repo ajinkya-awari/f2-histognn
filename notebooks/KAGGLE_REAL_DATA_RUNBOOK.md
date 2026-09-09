@@ -12,6 +12,9 @@ from the source-only synthetic notebook.
 - HoVer-Net revision: `67e2ce5e3f1a64a2ece77ad1c24233653a9e0901`
 - PanNuke checkpoint SHA-256:
   `4a1463467737f81203a0513f794276cbcbbd6bb470969584f314167c6acef081`
+- HoVer-Net compatibility uses `imgaug==0.4.0` with `numpy==1.26.4` in the
+  private Kaggle lock; its complete inference imports are checked before slide
+  acquisition.
 - Tiles: four deterministic tissue tiles per slide, normalized to 256 px at
   an effective 40x objective
 - Graph cap: 512 nuclei per tile; deterministic farthest-point sampling
