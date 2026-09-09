@@ -33,6 +33,14 @@ from training.benchmark import (
     partition_private_graphs,
     run_frozen_benchmark,
 )
+from scripts.kaggle_case_disjoint_benchmark import (
+    CASES_PER_CLASS,
+    MAX_INDIVIDUAL_SLIDE_BYTES,
+    MAX_TOTAL_SLIDE_BYTES,
+    TEST_PER_CLASS,
+    TRAIN_PER_CLASS,
+    VALIDATION_PER_CLASS,
+)
 
 
 def benchmark_records(per_class: int = 60) -> tuple[GDCSlideRecord, ...]:
@@ -398,3 +406,10 @@ def test_frozen_runner_trains_then_emits_case_level_results_only_after_success(m
     assert result["models"]["gcn"]["seeds"][0]["seed"] == 17
     assert result["models"]["gcn"]["seeds"][0]["metrics"]["positive_class"] == "LUSC"
     assert "case_key" not in repr(result)
+
+
+def test_kaggle_benchmark_entrypoint_freezes_approved_cohort_and_safety_caps():
+    assert CASES_PER_CLASS == 50
+    assert (TRAIN_PER_CLASS, VALIDATION_PER_CLASS, TEST_PER_CLASS) == (30, 10, 10)
+    assert MAX_INDIVIDUAL_SLIDE_BYTES == 2 * 1024**3
+    assert MAX_TOTAL_SLIDE_BYTES == 20 * 1024**3
