@@ -74,3 +74,17 @@ def test_seed_evidence_retains_means_curves_and_classifier_identity():
     assert evidence["provenance"]["train_loss"] == [0.8]
     assert evidence["provenance"]["validation_loss"] == [0.7]
     assert "selected_classifier_state" not in common["artifact_hashes"]
+
+
+def test_runner_selects_calibrated_inputs_using_headers_before_full_download(monkeypatch):
+    from dataclasses import replace
+    from tests.test_benchmark_contracts import benchmark_records
+    from tests.test_tiff_metadata import _tiff
+    blob = _tiff(b'Aperio|AppMag=20|MPP=0.5\0')
+    records = tuple(replace(record, file_size=len(blob)) for record in benchmark_records(3))
+    monkeypatch.setattr(runner, 'CASES_PER_CLASS', 3)
+    monkeypatch.setattr(runner, 'read_header_range', lambda record,start,length: blob[start:start+length], raising=False)
+    result = runner._select_calibrated_inputs(records)
+    assert len(result.records) == 6
+    assert set(result.objective_by_file.values()) == {20.0}
+    assert result.probed_slides == 6

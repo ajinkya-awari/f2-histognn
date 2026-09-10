@@ -52,7 +52,7 @@ Or run `scripts/verify_synthetic.ps1` on PowerShell / `scripts/verify_synthetic.
 
 Local planning-tree verification on 2026-09-07: **62 passed, 3 warnings, exit 0** in 13.17 seconds. Final standalone public-export verification on 2026-09-08: **62 passed, 3 warnings, exit 0** in 19.15 seconds. Both used Python 3.11.9, NumPy 2.4.6, PyTorch 2.12.1+cpu, PyTorch Geometric 2.7.0, and pytest 9.0.3. The warnings are one PyG distributed deprecation and two `torch.jit.script` deprecations. These are synthetic contract tests, not histology results.
 
-Draft benchmark-branch verification on 2026-09-09: **151 passed, 3 warnings, exit 0** in 21.17 seconds; compile also exited 0. The expanded count includes offline regression tests for GDC eligibility, sanitized evidence, streaming budgets, HoVer-Net probability conditioning, case-disjoint splitting, case-level metrics, bootstrap intervals, best-checkpoint restoration, non-finite training rejection, selected-state provenance, and all-model synthetic forward/backward preflight. It is not real-data model-performance evidence.
+Draft benchmark-branch verification on 2026-09-10: **223 passed, 3 warnings, exit 0** in 19.94 seconds; compile also exited 0. The expanded count includes offline regression tests for GDC eligibility, bounded TIFF calibration probing, checksum-verified parallel range transport, sanitized evidence, streaming budgets, HoVer-Net probability conditioning, case-disjoint splitting, case-level metrics, bootstrap intervals, best-checkpoint restoration, non-finite training rejection, selected-state provenance, and all-model synthetic forward/backward preflight. It is not real-data model-performance evidence.
 
 ## Kaggle execution
 
@@ -73,12 +73,22 @@ Private kernel version 9 completed the bounded real-data graph smoke on 2026-09-
 | GDC primary-diagnostic metadata reader and deterministic six-case manifest | Corrected live metadata-only preflight passed; zero slide bytes |
 | Real-data nuclei and graph smoke | Kaggle version 9 completed; sanitized evidence verified |
 | Real LUAD/LUSC benchmark and metrics | Not verified |
-| GPU training or performance | Not run / not verified |
+| Synthetic full-batch GPU forward/backward | Version 12 passed all four architectures; not real classifier training |
+| Real classifier training or performance | Not run / not verified |
 | Deployment or clinical use | Out of scope / not verified |
 
 ## Metrics and reproducibility
 
 The [approved benchmark specification](docs/CASE_DISJOINT_BENCHMARK_SPEC.md) freezes 100 cases, balanced 50/50, and a case-disjoint 60/20/20 split. Four tile softmax vectors are averaged per case. Accuracy and macro-F1 use argmax; AUROC and average precision (reported as AUPRC) treat LUSC as positive. Report each of three seeds, their means, and 2,000-resample stratified case-bootstrap intervals. No class weights are used because each partition is balanced. No number may be published without dataset/version, license, split hash, case-disjointness evidence, seed, device, dependency lock, code revision, and artifact hashes. Benchmark execution remains unverified; versions 10 and 11 stopped before slide acquisition.
+
+Version 12 subsequently stopped on a genuinely uncalibrated slide before nuclei
+inference or classifier training. A documented pre-results amendment now checks
+declared Aperio objective power through bounded TIFF header reads before selecting
+the calibrated cohort. This changes cohort membership/hashes, not class balance,
+case-disjoint split policy, models, seeds or evaluation. No magnification is
+inferred and no model result informed eligibility. Short private diagnostics
+confirmed the missing calibration and the GDC range-response format; the next
+full benchmark remains gated on input/transport verification.
 
 ## Privacy and security
 

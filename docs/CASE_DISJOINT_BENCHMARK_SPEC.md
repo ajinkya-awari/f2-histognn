@@ -105,6 +105,49 @@ and split manifests exist only in ephemeral Kaggle storage, so reproducing a run
 after metadata changes requires recovering the same manifest; a hash alone is
 not a substitute for its membership records.
 
+## Pre-results calibration eligibility amendment (2026-09-10)
+
+Version 12 proved all-model CUDA forward/backward compatibility but stopped
+after 35 slide transfers, before nuclei inference or classifier training. One
+source slide had no objective power, MPP, or other usable resolution metadata;
+private diagnostic version 14 confirmed this. No eligible alternative slide
+exists for that same case. Magnification must not be fabricated.
+
+Under the owner's renewed authorization to resolve Project 07 execution issues,
+the initial cohort is rejected before any model outcome is observed. The
+following metadata-only eligibility refinement supersedes the original cohort
+membership and its hashes, but not the 100-case, split, feature, model, seed,
+training, or evaluation contracts:
+
+- Rank GDC-eligible cases in each class using the existing sorted-ID, seed-17
+  permutation. Within each case inspect diagnostic files in sorted UUID order.
+- Select the first slide with bounded, readable Aperio TIFF calibration metadata
+  explicitly declaring finite objective power between 10x and 80x. Do not infer
+  objective power from MPP or from image appearance. Try another eligible slide
+  of the same case before excluding the case. Select the first 50 calibrated
+  cases per class from this ranking.
+- Header transport errors abort rather than excluding a case. Missing, malformed,
+  ambiguous or unsupported calibration is an explicit source-eligibility
+  exclusion. Neither nuclei counts nor model/metric outcomes are consulted.
+- Freeze new private cohort, calibration and case-disjoint split manifests before
+  acquisition/training; report their new hashes and exclusion counts. Preserve
+  the original manifest hash in failed-run evidence, not as the new cohort hash.
+- Only small byte-range header probes precede whole-slide acquisition. Each used
+  slide must still pass full byte-size/MD5 and OpenSlide validation.
+
+The transport now uses at most four connections for disjoint ranges of one
+private slide at a time. Exact numeric response ranges and full MD5 remain
+mandatory; GDC's observed header form omits the optional `bytes ` prefix. Retry
+traffic is bounded by twice each file's size and the remaining 70 GiB total
+slide-transfer budget. Each file has a 600-second deadline. These are transport
+changes, not permission to omit integrity checks. A short CPU-only header and
+full-file transfer validation precedes the next GPU benchmark.
+
+This eligibility amendment introduces a calibration/vendor availability
+restriction. Results must not be generalized to uncalibrated slides or other
+scanner formats without separate validation. No benchmark metric exists for
+the rejected initial cohort; no test-set outcome informed this amendment.
+
 ## Interpretation boundary
 
 This is a small, internally evaluated TCGA benchmark using sparse deterministic

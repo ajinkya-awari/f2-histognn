@@ -100,3 +100,18 @@ downloads, persists private manifests, rejects non-finite training, and records
 selected classifier-state hashes, loss curves, policy, source archive hash, and
 three-seed means in sanitized evidence. These implementation changes are not
 evidence that a real benchmark has succeeded.
+
+Version 12 passed the 16-graph x 512-node synthetic CUDA forward/backward
+preflight for all four architectures, then failed on missing slide calibration
+after 35 downloads (19,441,989,052 expected bytes through the failed slide;
+approximately 7,824 seconds from kernel start). No classifier training started.
+Version 14's short CPU diagnostic confirmed calibration was absent, not merely
+stored under the usual alternative MPP fields. Version 15 verified GDC's bare
+numeric Content-Range response syntax using four 64-byte probes.
+
+The specification now records a pre-results calibrated-source eligibility
+amendment. New cohort/split hashes must be frozen before training; old hashes
+must not be reused. The next validation checks header-based selection and one
+bounded full-file parallel transfer before another full benchmark. Version 13
+was a diagnostic launcher serialization failure, corrected with an exercised
+launcher test before version 14; it was not a benchmark/data-processing failure.

@@ -22,10 +22,13 @@ import numpy as np
 import torch
 
 from data.benchmark import sanitized_split_summary, select_balanced_cases, stratified_case_split
+from data.calibrated_cohort import select_calibrated_cases
 from data.benchmark_graphs import load_private_graphs, stream_slide_tiles
 from data.evidence import build_stage_evidence, write_evidence
 from data.gdc import extract_gdc_response_hits, filter_diagnostic_hits, manifest_summary, parse_gdc_hits
 from data.tiles import select_tissue_tile_origins
+from data.tiff_metadata import probe_aperio_calibration, TIFFMetadataError
+from data.transfer import download_slide_ranges, read_header_range
 from scripts.kaggle_real_data_discovery import PILOT_SEED, _query
 from scripts.kaggle_real_data_pilot import (
     CHECKPOINT_SHA256,
@@ -56,21 +59,15 @@ def _timestamp() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _fetch_slide(record, destination: Path) -> None:
+def _fetch_slide(record, destination: Path, *, max_transfer_bytes=None):
     if shutil.disk_usage(destination.parent).free < record.file_size + DISK_RESERVE_BYTES:
         raise RuntimeError("insufficient free disk for the next streamed slide")
     print(json.dumps({"stage": "slide_download", "expected_bytes": record.file_size}), flush=True)
-    request = Request(
-        f"https://api.gdc.cancer.gov/data/{record.file_id}",
-        headers={"User-Agent": "f2-histognn/0.1"},
-    )
-    with urlopen(request, timeout=120) as response, destination.open("xb") as handle:
-        _bounded_copy(
-            response,
-            handle,
-            expected_bytes=record.file_size,
-            remaining_bytes=record.file_size,
-        )
+    started = time.monotonic()
+    result = download_slide_ranges(record, destination, max_transfer_bytes=max_transfer_bytes)
+    print(json.dumps({"stage": "slide_download_verified", **result,
+                      "seconds": round(time.monotonic()-started,3)}), flush=True)
+    return result
 
 
 def _extract_one_slide(record, slide_path: Path, tile_dir: Path) -> tuple[Path, ...]:
@@ -115,6 +112,19 @@ def _query_eligible_records(query=_query):
 
     response = query(10000)
     return parse_gdc_hits(filter_diagnostic_hits(extract_gdc_response_hits(response)))
+
+
+def _select_calibrated_inputs(eligible):
+    def probe(record):
+        try:
+            return probe_aperio_calibration(
+                lambda start, length: read_header_range(record, start, length), record.file_size
+            )
+        except TIFFMetadataError:
+            # Invalid source metadata is ineligible; transport failures remain
+            # distinct and propagate, never silently removing a case.
+            return {"objective_power": None}
+    return select_calibrated_cases(eligible, probe, per_class=CASES_PER_CLASS, seed=PILOT_SEED)
 
 
 def _validate_streaming_budget(records, *, free_bytes: int) -> int:
@@ -226,7 +236,8 @@ def main() -> int:
     preflight = _model_training_preflight()
     print(json.dumps({"stage": "synthetic_training_preflight", "models": preflight}), flush=True)
     eligible = _query_eligible_records()
-    cohort = select_balanced_cases(eligible, per_class=CASES_PER_CLASS, seed=PILOT_SEED)
+    calibrated = _select_calibrated_inputs(eligible)
+    cohort = calibrated.records
     expected_bytes = _validate_streaming_budget(cohort, free_bytes=shutil.disk_usage(private).free)
     split = stratified_case_split(
         cohort,
@@ -238,11 +249,21 @@ def main() -> int:
     split_summary = sanitized_split_summary(split)
     cohort_summary = manifest_summary(cohort)
     _write_private_manifests(private, cohort, split)
+    with (private / "calibration.json").open("x", encoding="utf-8") as handle:
+        json.dump(dict(calibrated.objective_by_file), handle, sort_keys=True, separators=(",", ":"))
     print(json.dumps({"stage": "cohort_preflight", "expected_slide_bytes": expected_bytes,
                       "manifest_sha256": cohort_summary["manifest_sha256"],
                       "split": split_summary}), flush=True)
     checkout, checkpoint, patch_hash = _prepare_hovernet(private)
-    streamed = stream_slide_tiles(cohort, private, _fetch_slide, _extract_one_slide)
+    transferred_bytes = 0
+    def fetch_bounded(record, destination):
+        nonlocal transferred_bytes
+        budget = min(2 * record.file_size, MAX_TOTAL_SLIDE_BYTES - transferred_bytes)
+        if budget < record.file_size:
+            raise RuntimeError("remaining total transfer budget cannot cover the next slide")
+        transport = _fetch_slide(record, destination, max_transfer_bytes=budget)
+        transferred_bytes += transport["transferred_bytes"]
+    streamed = stream_slide_tiles(cohort, private, fetch_bounded, _extract_one_slide)
     json_dir = _run_hovernet(checkout, checkpoint, streamed.tile_dir, private)
     graph_set = load_private_graphs(
         json_dir,
@@ -278,6 +299,13 @@ def main() -> int:
         "training_loss_reduction": "sum per batch; mean per graph for reporting",
         "synthetic_training_preflight": preflight,
         "hovernet_revision": HOVERNET_REVISION,
+        "calibration_eligibility": {
+            "policy": "seed-ranked cases; first Aperio slide with declared objective power 10-80; no inferred calibration",
+            "excluded_case_counts": dict(calibrated.excluded_cases),
+            "probed_slide_count": calibrated.probed_slides,
+            "objective_counts": dict(Counter(str(value) for value in calibrated.objective_by_file.values())),
+        },
+        "actual_slide_transfer_bytes_including_retries": transferred_bytes,
         "determinism_scope": "strict classifier process; HoVer-Net subprocess uses its pinned inference implementation",
         "dependency_lock_sha256": dependency_hash,
         "device": {"type": "cuda", "name": device_name},
@@ -287,6 +315,7 @@ def main() -> int:
             "graph": graph_set.artifact_sha256,
             "segmentation_checkpoint": CHECKPOINT_SHA256,
             "hovernet_patch": patch_hash,
+            "calibration_manifest": _digest(private / "calibration.json", "sha256"),
         },
         "positive_class": "LUSC",
         "uncertainty_method": "2000 deterministic class-stratified case bootstrap resamples; percentile 95% interval",
