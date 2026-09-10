@@ -42,6 +42,8 @@ from scripts.kaggle_case_disjoint_benchmark import (
     TEST_PER_CLASS,
     TRAIN_PER_CLASS,
     VALIDATION_PER_CLASS,
+    _graph_valid_records,
+    _split_counts_for_graph_valid_cohort,
     _query_eligible_records,
 )
 
@@ -392,6 +394,90 @@ def test_private_graph_loading_fails_when_empty_candidates_leave_too_few_graphs(
         load_private_graphs(json_dir, mapping, tiles_per_case=4, max_nodes=512)
 
 
+def test_private_graph_loading_can_exclude_graph_qc_ineligible_cases_without_identifiers(tmp_path):
+    json_dir = tmp_path / "json"
+    json_dir.mkdir()
+    mapping = {}
+    for case_index, label in enumerate((0, 1)):
+        for tile_index in range(6):
+            stem = f"case-{case_index}-tile-{tile_index}"
+            mapping[stem] = (f"private-{case_index}", label)
+            if case_index == 1 and tile_index > 1:
+                (json_dir / f"{stem}.json").write_text(json.dumps({"nuc": {}}), encoding="utf-8")
+                continue
+            nuclei = {
+                str(index): {
+                    "centroid": [float(index), float(tile_index)],
+                    "type": 1,
+                    "probs": [0.0, 0.6, 0.1, 0.1, 0.1, 0.1],
+                }
+                for index in range(3)
+            }
+            (json_dir / f"{stem}.json").write_text(json.dumps({"nuc": nuclei}), encoding="utf-8")
+
+    graph_set = load_private_graphs(
+        json_dir,
+        mapping,
+        tiles_per_case=4,
+        max_nodes=512,
+        allow_incomplete_cases=True,
+    )
+
+    assert len(graph_set.graphs) == 4
+    assert {graph.case_key for graph in graph_set.graphs} == {"private-0"}
+    assert graph_set.complete_case_keys == ("private-0",)
+    assert graph_set.incomplete_case_counts_by_label == {"LUSC": 1}
+    assert graph_set.rejected_tile_counts == {"empty_nuclei": 4}
+    assert "private-1" not in repr(graph_set.incomplete_case_counts_by_label)
+
+
+def test_private_graph_hash_ignores_excluded_incomplete_cases(tmp_path):
+    def write_case(root, mapping, case_index, label, valid_tiles):
+        for tile_index in range(6):
+            stem = f"case-{case_index}-tile-{tile_index}"
+            mapping[stem] = (f"private-{case_index}", label)
+            if tile_index >= valid_tiles:
+                (root / f"{stem}.json").write_text(json.dumps({"nuc": {}}), encoding="utf-8")
+                continue
+            nuclei = {
+                str(index): {
+                    "centroid": [float(index), float(tile_index)],
+                    "type": 1,
+                    "probs": [0.0, 0.6, 0.1, 0.1, 0.1, 0.1],
+                }
+                for index in range(3)
+            }
+            (root / f"{stem}.json").write_text(json.dumps({"nuc": nuclei}), encoding="utf-8")
+
+    valid_dir = tmp_path / "valid"
+    mixed_dir = tmp_path / "mixed"
+    valid_dir.mkdir()
+    mixed_dir.mkdir()
+    valid_mapping = {}
+    mixed_mapping = {}
+    write_case(valid_dir, valid_mapping, 0, 0, valid_tiles=6)
+    write_case(mixed_dir, mixed_mapping, 0, 0, valid_tiles=6)
+    write_case(mixed_dir, mixed_mapping, 1, 1, valid_tiles=2)
+
+    valid = load_private_graphs(
+        valid_dir,
+        valid_mapping,
+        tiles_per_case=4,
+        max_nodes=512,
+        allow_incomplete_cases=True,
+    )
+    mixed = load_private_graphs(
+        mixed_dir,
+        mixed_mapping,
+        tiles_per_case=4,
+        max_nodes=512,
+        allow_incomplete_cases=True,
+    )
+
+    assert mixed.complete_case_keys == valid.complete_case_keys
+    assert mixed.artifact_sha256 == valid.artifact_sha256
+
+
 def test_private_graph_loading_still_fails_on_malformed_hovernet_json(tmp_path):
     json_dir = tmp_path / "json"
     json_dir.mkdir()
@@ -537,6 +623,25 @@ def test_benchmark_gdc_query_passes_integer_page_size_to_cli_query_adapter():
         _query_eligible_records(query)
 
     assert seen == [10000]
+
+
+def test_benchmark_resplit_uses_only_graph_qc_valid_cases_before_training():
+    records = select_balanced_cases(benchmark_records(6), per_class=6, seed=17)
+    complete_keys = {
+        hashlib.sha256(record.case_id.encode()).hexdigest()
+        for record in records
+        if not (record.label == "LUAD" and record.case_submitter_id.endswith("0000"))
+        and not (record.label == "LUSC" and record.case_submitter_id.endswith(("0000", "0001")))
+    }
+
+    valid_records = _graph_valid_records(records, complete_keys)
+    counts = _split_counts_for_graph_valid_cohort(valid_records)
+
+    assert {label: sum(record.label == label for record in valid_records) for label in ("LUAD", "LUSC")} == {
+        "LUAD": 5,
+        "LUSC": 4,
+    }
+    assert counts == {"per_class": 4, "train": 2, "validation": 1, "test": 1}
 
 
 def test_benchmark_notebook_is_unexecuted_and_calls_only_the_frozen_runner():

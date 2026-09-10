@@ -34,9 +34,11 @@ from scripts.kaggle_case_disjoint_benchmark import (
     VALIDATION_PER_CLASS,
     _digest,
     _extract_one_slide,
+    _graph_valid_records,
     _query_eligible_records,
     _require_cuda_execution,
     _require_kaggle_private_runtime,
+    _split_counts_for_graph_valid_cohort,
     _validate_streaming_budget,
     _write_private_manifests,
 )
@@ -160,6 +162,7 @@ def main() -> int:
             streamed.tile_to_case,
             tiles_per_case=FROZEN_POLICY.tiles_per_case,
             max_nodes=512,
+            allow_incomplete_cases=True,
         )
     except BenchmarkGraphError as exc:
         evidence = build_stage_evidence(
@@ -205,10 +208,19 @@ def main() -> int:
         )
         print(json.dumps({"status": "failed", "stage": "real_data_graph_qc"}, sort_keys=True))
         return 0
+    graph_valid_cohort = _graph_valid_records(cohort, graph_set.complete_case_keys)
+    graph_split_counts = _split_counts_for_graph_valid_cohort(graph_valid_cohort)
+    split = stratified_case_split(
+        graph_valid_cohort,
+        seed=PILOT_SEED,
+        train_per_class=graph_split_counts["train"],
+        validation_per_class=graph_split_counts["validation"],
+        test_per_class=graph_split_counts["test"],
+    )
+    graph_valid_summary = manifest_summary(graph_valid_cohort)
+    split_summary = sanitized_split_summary(split)
     partitions = partition_private_graphs(graph_set.graphs, split)
     graph_counts = {name: len(value) for name, value in partitions.items()}
-    if graph_counts != {"train": 240, "validation": 80, "test": 80}:
-        raise RuntimeError("graph partition counts do not match the frozen case split")
     torch.cuda.synchronize()
     evidence = build_stage_evidence(
         stage="real_data_graph_qc",
@@ -216,7 +228,7 @@ def main() -> int:
         timestamp_utc=timestamp,
         provenance={
             "dataset_release": f"GDC API query {timestamp}",
-            "manifest_sha256": cohort_summary["manifest_sha256"],
+            "manifest_sha256": graph_valid_summary["manifest_sha256"],
             "split_manifest_sha256": split.split_sha256,
             "code_revision": source_revision,
             "source_archive_sha256": os.environ["PROJECT07_SOURCE_ARCHIVE_SHA256"],
@@ -229,10 +241,14 @@ def main() -> int:
             "cuda_runtime": torch.version.cuda,
             "peak_cuda_memory_bytes": torch.cuda.max_memory_allocated(),
             "runtime_seconds": round(time.monotonic() - started, 3),
-            "cohort_case_count": len(cohort),
+            "calibrated_candidate_case_count": len(cohort),
+            "cohort_case_count": len(graph_valid_cohort),
+            "graph_qc_complete_case_count": len(graph_set.complete_case_keys),
+            "graph_qc_incomplete_case_counts_by_label": graph_set.incomplete_case_counts_by_label,
             "downloaded_slide_bytes": streamed.total_slide_bytes,
             "actual_slide_transfer_bytes_including_retries": transferred_bytes,
             "split_counts": split_summary,
+            "graph_valid_split_counts": graph_split_counts,
             "graph_counts": graph_counts,
             "tile_candidates_per_case": CANDIDATE_TILES_PER_CASE,
             "valid_graphs_per_case": FROZEN_POLICY.tiles_per_case,

@@ -140,6 +140,28 @@ def _validate_streaming_budget(records, *, free_bytes: int) -> int:
     return total
 
 
+def _private_case_key(case_id: str) -> str:
+    return hashlib.sha256(case_id.encode()).hexdigest()
+
+
+def _graph_valid_records(records, complete_case_keys):
+    complete = set(complete_case_keys)
+    return tuple(record for record in records if _private_case_key(record.case_id) in complete)
+
+
+def _split_counts_for_graph_valid_cohort(records) -> dict[str, int]:
+    counts = Counter(record.label for record in records)
+    per_class = min(counts.get("LUAD", 0), counts.get("LUSC", 0))
+    if per_class < 4:
+        raise RuntimeError("graph-valid cohort is too small for a class-balanced benchmark")
+    test = max(1, per_class // 5)
+    validation = max(1, per_class // 5)
+    train = per_class - validation - test
+    if train <= 0:
+        raise RuntimeError("graph-valid cohort cannot support train/validation/test split")
+    return {"per_class": per_class, "train": train, "validation": validation, "test": test}
+
+
 def _write_private_manifests(private: Path, cohort, split) -> None:
     payloads = {
         "cohort.json": [asdict(record) for record in sorted(cohort)],
@@ -277,7 +299,26 @@ def main() -> int:
         streamed.tile_to_case,
         tiles_per_case=FROZEN_POLICY.tiles_per_case,
         max_nodes=512,
+        allow_incomplete_cases=True,
     )
+    graph_valid_cohort = _graph_valid_records(cohort, graph_set.complete_case_keys)
+    graph_split_counts = _split_counts_for_graph_valid_cohort(graph_valid_cohort)
+    split = stratified_case_split(
+        graph_valid_cohort,
+        seed=PILOT_SEED,
+        train_per_class=graph_split_counts["train"],
+        validation_per_class=graph_split_counts["validation"],
+        test_per_class=graph_split_counts["test"],
+    )
+    graph_valid_summary = manifest_summary(graph_valid_cohort)
+    split_summary = sanitized_split_summary(split)
+    print(json.dumps({
+        "stage": "graph_qc_pretraining_gate",
+        "graph_valid_manifest_sha256": graph_valid_summary["manifest_sha256"],
+        "graph_qc_complete_case_count": len(graph_set.complete_case_keys),
+        "graph_qc_incomplete_case_counts_by_label": graph_set.incomplete_case_counts_by_label,
+        "split": split_summary,
+    }), flush=True)
     partitions = partition_private_graphs(graph_set.graphs, split)
     results = run_frozen_benchmark(
         partitions,
@@ -285,7 +326,7 @@ def main() -> int:
         graph_sha256=graph_set.artifact_sha256,
         provenance={
             "source_revision": source_revision,
-            "manifest_sha256": cohort_summary["manifest_sha256"],
+            "manifest_sha256": graph_valid_summary["manifest_sha256"],
             "split_manifest_sha256": split.split_sha256,
         },
         device="cuda",
@@ -295,7 +336,7 @@ def main() -> int:
     dependency_hash = _dependency_lock_hash(root)
     common = {
         "dataset_release": f"GDC API query {timestamp}",
-        "manifest_sha256": cohort_summary["manifest_sha256"],
+        "manifest_sha256": graph_valid_summary["manifest_sha256"],
         "split_manifest_sha256": split.split_sha256,
         "code_revision": source_revision,
         "source_archive_sha256": os.environ["PROJECT07_SOURCE_ARCHIVE_SHA256"],
@@ -329,9 +370,13 @@ def main() -> int:
         },
         "positive_class": "LUSC",
         "uncertainty_method": "2000 deterministic class-stratified case bootstrap resamples; percentile 95% interval",
-        "cohort_case_count": len(cohort),
+        "calibrated_candidate_case_count": len(cohort),
+        "cohort_case_count": len(graph_valid_cohort),
+        "graph_qc_complete_case_count": len(graph_set.complete_case_keys),
+        "graph_qc_incomplete_case_counts_by_label": graph_set.incomplete_case_counts_by_label,
         "downloaded_slide_bytes": streamed.total_slide_bytes,
         "split_counts": split_summary,
+        "graph_valid_split_counts": graph_split_counts,
         "graph_counts": results["graph_counts"],
         "python": sys.version.split()[0],
         "torch": torch.__version__,

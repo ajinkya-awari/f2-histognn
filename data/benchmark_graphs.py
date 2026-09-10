@@ -43,6 +43,8 @@ class PrivateGraphSet:
     graphs: tuple[PrivateGraph, ...]
     artifact_sha256: str
     rejected_tile_counts: Mapping[str, int]
+    complete_case_keys: tuple[str, ...] = ()
+    incomplete_case_counts_by_label: Mapping[str, int] | None = None
 
 
 def _within(path: Path, root: Path) -> bool:
@@ -124,6 +126,7 @@ def load_private_graphs(
     *,
     tiles_per_case: int = 4,
     max_nodes: int = 512,
+    allow_incomplete_cases: bool = False,
 ) -> PrivateGraphSet:
     """Convert private HoVer-Net JSON files into deterministic bounded graphs."""
 
@@ -151,7 +154,6 @@ def load_private_graphs(
         case_key, _label = tile_to_case[missing_stem]
         rejected_counts["missing_hovernet_json"] += 1
         selected_counts.setdefault(case_key, 0)
-    hasher = hashlib.sha256()
     for path in paths:
         mapping = tile_to_case[path.stem]
         if (
@@ -179,21 +181,40 @@ def load_private_graphs(
         coordinates = record.centroid[selected]
         features = record.features[selected]
         edge_index, edge_attr = build_knn_graph(coordinates, k=8)
-        for array, dtype in (
-            (features, "<f8"),
-            (edge_index, "<i8"),
-            (edge_attr, "<f8"),
-        ):
-            hasher.update(np.asarray(array).astype(dtype).tobytes())
-        hasher.update(case_key.encode())
-        hasher.update(str(label).encode())
         graphs.append(
             PrivateGraph(path.stem, case_key, label, features, edge_index, edge_attr)
         )
         selected_counts[case_key] += 1
-    if any(selected_counts[case_key] != tiles_per_case for case_key in counts):
+    incomplete = {
+        case_key for case_key in counts if selected_counts[case_key] != tiles_per_case
+    }
+    if incomplete and not allow_incomplete_cases:
         raise BenchmarkGraphError(
             f"each case must provide at least {tiles_per_case} candidate tiles "
             f"and exactly {tiles_per_case} valid graphs; rejected tiles: {dict(rejected_counts)}"
         )
-    return PrivateGraphSet(tuple(graphs), hasher.hexdigest(), dict(sorted(rejected_counts.items())))
+    if incomplete:
+        complete = {case_key for case_key in counts if case_key not in incomplete}
+        graphs = [graph for graph in graphs if graph.case_key in complete]
+    hasher = hashlib.sha256()
+    for graph in graphs:
+        for array, dtype in (
+            (graph.features, "<f8"),
+            (graph.edge_index, "<i8"),
+            (graph.edge_attr, "<f8"),
+        ):
+            hasher.update(np.asarray(array).astype(dtype).tobytes())
+        hasher.update(graph.case_key.encode())
+        hasher.update(str(graph.label).encode())
+    label_names = {0: "LUAD", 1: "LUSC"}
+    label_by_case: dict[str, int] = {}
+    for case_key, label in tile_to_case.values():
+        label_by_case.setdefault(case_key, label)
+    incomplete_by_label = Counter(label_names[label_by_case[case_key]] for case_key in incomplete)
+    return PrivateGraphSet(
+        tuple(graphs),
+        hasher.hexdigest(),
+        dict(sorted(rejected_counts.items())),
+        tuple(sorted(case_key for case_key in counts if case_key not in incomplete)),
+        dict(sorted(incomplete_by_label.items())),
+    )
