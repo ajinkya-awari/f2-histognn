@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "stage": "benchmark_input_preparation",
+  "status": "failed",
+  "provenance": {
+    "kernel_version": 12,
+    "code_revision": "f63c73be577e48d7e8cdae05b0a35c98cee5de73",
+    "source_archive_sha256": "ed92cd4819e044d1c7e7d69338c035f8e62d8035a7a64bcca5cae1f8f4cb3043",
+    "manifest_sha256": "c1b66e133c8a8433f399d608df49da0d256f98465100ceaa0e3bcc01f15e30ec",
+    "split_manifest_sha256": "a7f3ebf4e2e24162852c1909cc6684420c2ad9a08d0bc01e83e2984561ca440e",
+    "failure": "slide objective power is missing or invalid",
+    "failure_seconds_from_kernel_start": 7824.077518446,
+    "download_attempts_from_deduplicated_logs": 35,
+    "sum_expected_slide_bytes_through_failure": 19441989052,
+    "synthetic_cuda_preflight": {
+      "models": ["gcn", "graphsage", "gat", "graphgps"],
+      "graphs_per_batch": 16,
+      "nodes_per_graph": 512,
+      "forward_shape": [16, 2],
+      "backward_finite": true
+    },
+    "classifier_training_started": false,
+    "accepted_benchmark_metrics": false,
+    "followup": "CPU diagnostic v14 confirmed missing objective and MPP; v15 confirmed exact numeric GDC byte ranges without the bytes prefix"
+  }
+}

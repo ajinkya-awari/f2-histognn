@@ -1,0 +1,70 @@
+{
+  "provenance": {
+    "benchmark_metrics_emitted": false,
+    "case_count": 6,
+    "checkpoint_sha256": "4a1463467737f81203a0513f794276cbcbbd6bb470969584f314167c6acef081",
+    "class_counts": {
+      "LUAD": 3,
+      "LUSC": 3
+    },
+    "cuda_arch_list": [
+      "sm_50",
+      "sm_60",
+      "sm_70",
+      "sm_75",
+      "sm_80",
+      "sm_86",
+      "sm_90"
+    ],
+    "cuda_runtime": "12.6",
+    "dataset_release": "GDC API query 2026-09-09T11:57:28Z",
+    "dependency_lock_sha256": "f67136e8201c8df3ec71cd0e6a9e16c46b6dd6893d44f88b5dc534f849a9d336",
+    "device": {
+      "name": "Tesla P100-PCIE-16GB",
+      "type": "cuda"
+    },
+    "download_checksums_verified": true,
+    "downloaded_slide_bytes": 992062769,
+    "gdc_source": "https://api.gdc.cancer.gov",
+    "graph_artifact_sha256": "ac0dc53ca3f1c4e9453c8ede167f2a9fa3960725c5dce95ec68e36fecf899585",
+    "graph_count": 24,
+    "hovernet_compatibility_patch_sha256": "60ae70a2f86371edceb9c2279019d4637e973abcfe6408e3d7e9e1d89fb6b567",
+    "hovernet_revision": "67e2ce5e3f1a64a2ece77ad1c24233653a9e0901",
+    "manifest_sha256": "32a5f07fd78009f24feccf11e87192a30bf977bfb7abbc0994778a32bc9e9d4f",
+    "model_output_shapes": {
+      "gat": [
+        1,
+        2
+      ],
+      "gcn": [
+        1,
+        2
+      ],
+      "graphgps": [
+        1,
+        2
+      ],
+      "graphsage": [
+        1,
+        2
+      ]
+    },
+    "one_slide_per_case": true,
+    "python": "3.12.13",
+    "raw_artifacts_published": false,
+    "record_count": 6,
+    "runtime_seconds": 171.382,
+    "selection_seed": 17,
+    "source_revision": "2cbdb6f103de559aa6706d05a42527dbcff8feaa",
+    "tile_count": 24,
+    "tiles_per_slide": 4,
+    "torch": "2.7.1+cu126",
+    "torch_geometric": "2.7.0",
+    "total_sampled_nodes": 677,
+    "type_probability_transform": "drop_background_then_renormalize_non_background"
+  },
+  "schema_version": "1.0",
+  "stage": "real_data_graph_smoke",
+  "status": "passed",
+  "timestamp_utc": "2026-09-09T11:57:28Z"
+}

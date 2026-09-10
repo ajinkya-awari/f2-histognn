@@ -128,3 +128,103 @@ def test_requested_cuda_fails_explicitly_when_unavailable(monkeypatch):
 
     with pytest.raises(RuntimeError, match="CUDA"):
         evaluate_loss(_FixedLossModel(), [_edgeless_batch(1)], device="cuda")
+
+
+class _DivergingValidationModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.score = torch.nn.Parameter(torch.tensor(0.0))
+
+    def forward(self, x, edge_index, edge_attr, batch):
+        graph_count = int(batch.max().item()) + 1
+        return torch.stack((-self.score, self.score)).repeat(graph_count, 1)
+
+
+def test_fit_model_restores_the_best_validation_state_before_returning():
+    model = _DivergingValidationModel()
+    train = _edgeless_batch(1)
+    train.y = torch.ones(1, dtype=torch.long)
+    validation = _edgeless_batch(1)
+    config = TrainingConfig(
+        seed=17,
+        split_hash="split",
+        preprocessing_hash="prep",
+        max_epochs=4,
+        patience=2,
+        learning_rate=0.1,
+    )
+
+    result = fit_model(model, [train], [validation], config, {"seed": 17})
+
+    assert result.best_epoch == 0
+    assert torch.equal(model.state_dict()["score"], result.best_state_dict["score"])
+
+
+class _NonfiniteModel(torch.nn.Module):
+    def __init__(self, failure, validation_only=False):
+        super().__init__()
+        self.score = torch.nn.Parameter(torch.tensor(0.0))
+        self.failure = failure
+        self.validation_only = validation_only
+        self.validation_calls = 0
+
+    def forward(self, x, edge_index, edge_attr, batch):
+        graph_count = int(batch.max().item()) + 1
+        if not self.training:
+            self.validation_calls += 1
+        fail = not self.validation_only or (
+            not self.training and self.validation_calls > 1
+        )
+        score = self.score
+        if fail and self.failure == "logits":
+            score = score * float("nan")
+        if fail and self.failure == "loss":
+            score = score + 3e38
+        if fail and self.failure == "gradients":
+            score = torch.sqrt(score)
+        return torch.stack((-score, score)).repeat(graph_count, 1)
+
+
+def _finite_check_config():
+    return TrainingConfig(
+        seed=17, split_hash="split", preprocessing_hash="prep",
+        max_epochs=3, patience=2,
+    )
+
+
+@pytest.mark.parametrize("failure", ["logits", "loss"])
+def test_evaluate_loss_rejects_nonfinite_values(failure):
+    with pytest.raises(ValueError, match=f"non-finite.*{failure}"):
+        evaluate_loss(_NonfiniteModel(failure), [_edgeless_batch(1)])
+
+
+@pytest.mark.parametrize("failure", ["logits", "loss", "gradients"])
+def test_fit_model_rejects_nonfinite_values_before_updating_parameters(failure):
+    model = _NonfiniteModel(failure)
+    initial_score = model.score.detach().clone()
+    with pytest.raises(ValueError, match=f"non-finite.*{failure}"):
+        fit_model(model, [_edgeless_batch(1)], [_edgeless_batch(1)],
+                  _finite_check_config(), {"seed": 17})
+    assert torch.equal(model.score.detach(), initial_score)
+
+
+def test_fit_model_does_not_hide_later_nonfinite_validation_with_best_checkpoint():
+    model = _NonfiniteModel("logits", validation_only=True)
+    with pytest.raises(ValueError, match="non-finite.*logits"):
+        fit_model(model, [_edgeless_batch(1)], [_edgeless_batch(1)],
+                  _finite_check_config(), {"seed": 17})
+
+
+def test_fit_model_rejects_nonfinite_parameters_after_update():
+    model = _DivergingValidationModel()
+
+    def corrupt_parameter(gradient):
+        # Fault injection: a finite gradient must not hide invalid update state.
+        with torch.no_grad():
+            model.score.fill_(float("inf"))
+        return gradient
+
+    model.score.register_hook(corrupt_parameter)
+    with pytest.raises(ValueError, match="non-finite.*parameters"):
+        fit_model(model, [_edgeless_batch(1)], [_edgeless_batch(1)],
+                  _finite_check_config(), {"seed": 17})
