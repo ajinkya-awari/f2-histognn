@@ -21,6 +21,7 @@ from data.benchmark_graphs import (
     load_private_graphs,
     stream_slide_tiles,
 )
+from data.hovernet import HoverNetOutputError
 from training.evaluation import (
     BenchmarkEvaluationError,
     aggregate_case_probabilities,
@@ -309,6 +310,82 @@ def test_private_graph_loading_is_deterministic_and_enforces_four_graphs_per_cas
             json_dir,
             {key: value for key, value in mapping.items() if key != missing_key},
         )
+
+
+def test_private_graph_loading_rejects_empty_candidates_but_keeps_four_valid_graphs(tmp_path):
+    json_dir = tmp_path / "json"
+    json_dir.mkdir()
+    mapping = {}
+    case_key = "private-case"
+    valid_stems = []
+    for tile_index in range(6):
+        stem = f"case-0-tile-{tile_index}"
+        mapping[stem] = (case_key, 0)
+        if tile_index in (1, 4):
+            (json_dir / f"{stem}.json").write_text(json.dumps({"nuc": {}}), encoding="utf-8")
+            continue
+        valid_stems.append(stem)
+        nuclei = {
+            str(index): {
+                "centroid": [float(index), float(tile_index)],
+                "type": 1,
+                "probs": [0.0, 0.6, 0.1, 0.1, 0.1, 0.1],
+            }
+            for index in range(3)
+        }
+        (json_dir / f"{stem}.json").write_text(json.dumps({"nuc": nuclei}), encoding="utf-8")
+
+    graph_set = load_private_graphs(json_dir, mapping, tiles_per_case=4, max_nodes=512)
+
+    assert [graph.tile_key for graph in graph_set.graphs] == valid_stems
+    assert graph_set.rejected_tile_counts == {"empty_nuclei": 2}
+
+
+def test_private_graph_loading_fails_when_empty_candidates_leave_too_few_graphs(tmp_path):
+    json_dir = tmp_path / "json"
+    json_dir.mkdir()
+    mapping = {}
+    case_key = "private-case"
+    for tile_index in range(4):
+        stem = f"case-0-tile-{tile_index}"
+        mapping[stem] = (case_key, 0)
+        payload = {"nuc": {}} if tile_index else {
+            "nuc": {
+                str(index): {
+                    "centroid": [float(index), 0.0],
+                    "type": 1,
+                    "probs": [0.0, 0.6, 0.1, 0.1, 0.1, 0.1],
+                }
+                for index in range(3)
+            }
+        }
+        (json_dir / f"{stem}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(BenchmarkGraphError, match="exactly 4 valid graphs"):
+        load_private_graphs(json_dir, mapping, tiles_per_case=4, max_nodes=512)
+
+
+def test_private_graph_loading_still_fails_on_malformed_hovernet_json(tmp_path):
+    json_dir = tmp_path / "json"
+    json_dir.mkdir()
+    mapping = {}
+    for tile_index in range(4):
+        stem = f"case-0-tile-{tile_index}"
+        mapping[stem] = ("private-case", 0)
+        payload = {"bad": "shape"} if tile_index == 0 else {
+            "nuc": {
+                str(index): {
+                    "centroid": [float(index), 0.0],
+                    "type": 1,
+                    "probs": [0.0, 0.6, 0.1, 0.1, 0.1, 0.1],
+                }
+                for index in range(3)
+            }
+        }
+        (json_dir / f"{stem}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(HoverNetOutputError, match="instance identifiers|must be a mapping"):
+        load_private_graphs(json_dir, mapping, tiles_per_case=4, max_nodes=512)
 
 
 def test_frozen_benchmark_policy_defines_exactly_twelve_runs():

@@ -53,6 +53,7 @@ MAX_INDIVIDUAL_SLIDE_BYTES = 3 * 1024**3
 MAX_TOTAL_SLIDE_BYTES = 70 * 1024**3
 DISK_RESERVE_BYTES = 2 * 1024**3
 TILE_PIXELS_AT_40X = 256
+CANDIDATE_TILES_PER_CASE = 8
 
 
 def _timestamp() -> str:
@@ -88,7 +89,7 @@ def _extract_one_slide(record, slide_path: Path, tile_dir: Path) -> tuple[Path, 
             thumbnail,
             slide_size=slide.dimensions,
             tile_size=source_pixels,
-            count=FROZEN_POLICY.tiles_per_case,
+            count=CANDIDATE_TILES_PER_CASE,
             seed=PILOT_SEED,
         )
         for tile_index, origin in enumerate(origins):
@@ -263,7 +264,13 @@ def main() -> int:
             raise RuntimeError("remaining total transfer budget cannot cover the next slide")
         transport = _fetch_slide(record, destination, max_transfer_bytes=budget)
         transferred_bytes += transport["transferred_bytes"]
-    streamed = stream_slide_tiles(cohort, private, fetch_bounded, _extract_one_slide)
+    streamed = stream_slide_tiles(
+        cohort,
+        private,
+        fetch_bounded,
+        _extract_one_slide,
+        tiles_per_case=CANDIDATE_TILES_PER_CASE,
+    )
     json_dir = _run_hovernet(checkout, checkpoint, streamed.tile_dir, private)
     graph_set = load_private_graphs(
         json_dir,
@@ -306,6 +313,9 @@ def main() -> int:
             "objective_counts": dict(Counter(str(value) for value in calibrated.objective_by_file.values())),
         },
         "actual_slide_transfer_bytes_including_retries": transferred_bytes,
+        "tile_candidates_per_case": CANDIDATE_TILES_PER_CASE,
+        "valid_graphs_per_case": FROZEN_POLICY.tiles_per_case,
+        "rejected_tile_counts": dict(graph_set.rejected_tile_counts),
         "determinism_scope": "strict classifier process; HoVer-Net subprocess uses its pinned inference implementation",
         "dependency_lock_sha256": dependency_hash,
         "device": {"type": "cuda", "name": device_name},

@@ -13,7 +13,7 @@ import numpy as np
 
 from data.gdc import GDCSlideRecord
 from data.graph import build_knn_graph
-from data.hovernet import load_hovernet_instances
+from data.hovernet import HoverNetOutputError, load_hovernet_instances
 from data.sampling import farthest_point_sampling
 
 
@@ -42,6 +42,7 @@ class PrivateGraph:
 class PrivateGraphSet:
     graphs: tuple[PrivateGraph, ...]
     artifact_sha256: str
+    rejected_tile_counts: Mapping[str, int]
 
 
 def _within(path: Path, root: Path) -> bool:
@@ -134,9 +135,14 @@ def load_private_graphs(
     if not paths or {path.stem for path in paths} != set(tile_to_case):
         raise BenchmarkGraphError("HoVer-Net JSON and private tile mapping must match exactly")
     counts = Counter(value[0] for value in tile_to_case.values())
-    if any(count != tiles_per_case for count in counts.values()):
-        raise BenchmarkGraphError(f"each case must contain exactly {tiles_per_case} graphs")
+    if any(count < tiles_per_case for count in counts.values()):
+        raise BenchmarkGraphError(
+            f"each case must provide at least {tiles_per_case} candidate tiles "
+            f"and exactly {tiles_per_case} valid graphs"
+        )
     graphs: list[PrivateGraph] = []
+    selected_counts: Counter[str] = Counter()
+    rejected_counts: Counter[str] = Counter()
     hasher = hashlib.sha256()
     for path in paths:
         mapping = tile_to_case[path.stem]
@@ -148,10 +154,20 @@ def load_private_graphs(
             or mapping[1] not in (0, 1)
         ):
             raise BenchmarkGraphError("private tile mapping is invalid")
-        record = load_hovernet_instances(path, max_nuclei=100000)
+        case_key, label = mapping
+        if selected_counts[case_key] >= tiles_per_case:
+            continue
+        try:
+            record = load_hovernet_instances(path, max_nuclei=100000)
+        except HoverNetOutputError as exc:
+            if "non-empty nuclei" not in str(exc):
+                raise
+            rejected_counts["empty_nuclei"] += 1
+            continue
         selected = farthest_point_sampling(record.centroid, cap=max_nodes, random_start=False)
         if len(selected) < 2:
-            raise BenchmarkGraphError("each graph must contain at least two nuclei")
+            rejected_counts["fewer_than_two_nuclei"] += 1
+            continue
         coordinates = record.centroid[selected]
         features = record.features[selected]
         edge_index, edge_attr = build_knn_graph(coordinates, k=8)
@@ -161,9 +177,15 @@ def load_private_graphs(
             (edge_attr, "<f8"),
         ):
             hasher.update(np.asarray(array).astype(dtype).tobytes())
-        hasher.update(mapping[0].encode())
-        hasher.update(str(mapping[1]).encode())
+        hasher.update(case_key.encode())
+        hasher.update(str(label).encode())
         graphs.append(
-            PrivateGraph(path.stem, mapping[0], mapping[1], features, edge_index, edge_attr)
+            PrivateGraph(path.stem, case_key, label, features, edge_index, edge_attr)
         )
-    return PrivateGraphSet(tuple(graphs), hasher.hexdigest())
+        selected_counts[case_key] += 1
+    if any(selected_counts[case_key] != tiles_per_case for case_key in counts):
+        raise BenchmarkGraphError(
+            f"each case must provide at least {tiles_per_case} candidate tiles "
+            f"and exactly {tiles_per_case} valid graphs; rejected tiles: {dict(rejected_counts)}"
+        )
+    return PrivateGraphSet(tuple(graphs), hasher.hexdigest(), dict(sorted(rejected_counts.items())))
