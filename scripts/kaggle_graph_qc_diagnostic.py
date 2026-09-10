@@ -19,7 +19,7 @@ import torch
 
 from data.benchmark import sanitized_split_summary, stratified_case_split
 from data.calibrated_cohort import select_calibrated_cases
-from data.benchmark_graphs import load_private_graphs, stream_slide_tiles
+from data.benchmark_graphs import BenchmarkGraphError, load_private_graphs, stream_slide_tiles
 from data.evidence import build_stage_evidence, write_evidence
 from data.gdc import extract_gdc_response_hits, filter_diagnostic_hits, manifest_summary, parse_gdc_hits
 from data.tiff_metadata import TIFFMetadataError, probe_aperio_calibration
@@ -154,12 +154,57 @@ def main() -> int:
         tiles_per_case=CANDIDATE_TILES_PER_CASE,
     )
     json_dir = _run_hovernet(checkout, checkpoint, streamed.tile_dir, private)
-    graph_set = load_private_graphs(
-        json_dir,
-        streamed.tile_to_case,
-        tiles_per_case=FROZEN_POLICY.tiles_per_case,
-        max_nodes=512,
-    )
+    try:
+        graph_set = load_private_graphs(
+            json_dir,
+            streamed.tile_to_case,
+            tiles_per_case=FROZEN_POLICY.tiles_per_case,
+            max_nodes=512,
+        )
+    except BenchmarkGraphError as exc:
+        evidence = build_stage_evidence(
+            stage="real_data_graph_qc",
+            status="failed",
+            timestamp_utc=timestamp,
+            provenance={
+                "failure_reason": str(exc),
+                "dataset_release": f"GDC API query {timestamp}",
+                "manifest_sha256": cohort_summary["manifest_sha256"],
+                "split_manifest_sha256": split.split_sha256,
+                "code_revision": source_revision,
+                "source_archive_sha256": os.environ["PROJECT07_SOURCE_ARCHIVE_SHA256"],
+                "benchmark_spec_sha256": _digest(root / "docs/CASE_DISJOINT_BENCHMARK_SPEC.md", "sha256"),
+                "dependency_lock_sha256": _dependency_lock_hash(root),
+                "device": {"type": "cuda", "name": device_name},
+                "python": sys.version.split()[0],
+                "torch": torch.__version__,
+                "torch_geometric": importlib.metadata.version("torch-geometric"),
+                "cuda_runtime": torch.version.cuda,
+                "runtime_seconds": round(time.monotonic() - started, 3),
+                "cohort_case_count": len(cohort),
+                "downloaded_slide_bytes": streamed.total_slide_bytes,
+                "actual_slide_transfer_bytes_including_retries": transferred_bytes,
+                "split_counts": split_summary,
+                "tile_candidates_per_case": CANDIDATE_TILES_PER_CASE,
+                "valid_graphs_per_case": FROZEN_POLICY.tiles_per_case,
+                "calibration_eligibility": {
+                    "policy": "seed-ranked cases; first Aperio slide with declared objective power 10-80; no inferred calibration",
+                    "excluded_case_counts": dict(calibrated.excluded_cases),
+                    "probed_slide_count": calibrated.probed_slides,
+                    "objective_counts": dict(Counter(str(value) for value in calibrated.objective_by_file.values())),
+                },
+                "hovernet_revision": HOVERNET_REVISION,
+                "benchmark_metrics_emitted": False,
+                "classifier_training_executed": False,
+                "raw_artifacts_published": False,
+            },
+        )
+        write_evidence(
+            evidence_dir / f"real_data_graph_qc_failed_{timestamp.replace(':', '')}.json",
+            evidence,
+        )
+        print(json.dumps({"status": "failed", "stage": "real_data_graph_qc"}, sort_keys=True))
+        return 0
     partitions = partition_private_graphs(graph_set.graphs, split)
     graph_counts = {name: len(value) for name, value in partitions.items()}
     if graph_counts != {"train": 240, "validation": 80, "test": 80}:
