@@ -132,8 +132,12 @@ def load_private_graphs(
     if type(max_nodes) is not int or max_nodes <= 0:
         raise BenchmarkGraphError("max_nodes must be a positive integer")
     paths = sorted(Path(json_dir).glob("*.json"))
-    if not paths or {path.stem for path in paths} != set(tile_to_case):
-        raise BenchmarkGraphError("HoVer-Net JSON and private tile mapping must match exactly")
+    path_stems = {path.stem for path in paths}
+    mapped_stems = set(tile_to_case)
+    if not paths or not path_stems.issubset(mapped_stems):
+        raise BenchmarkGraphError(
+            "HoVer-Net JSON must be a non-empty subset of private tile mapping"
+        )
     counts = Counter(value[0] for value in tile_to_case.values())
     if any(count < tiles_per_case for count in counts.values()):
         raise BenchmarkGraphError(
@@ -143,6 +147,10 @@ def load_private_graphs(
     graphs: list[PrivateGraph] = []
     selected_counts: Counter[str] = Counter()
     rejected_counts: Counter[str] = Counter()
+    for missing_stem in sorted(mapped_stems - path_stems):
+        case_key, _label = tile_to_case[missing_stem]
+        rejected_counts["missing_hovernet_json"] += 1
+        selected_counts.setdefault(case_key, 0)
     hasher = hashlib.sha256()
     for path in paths:
         mapping = tile_to_case[path.stem]

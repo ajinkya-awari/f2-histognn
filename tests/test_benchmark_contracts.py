@@ -341,6 +341,33 @@ def test_private_graph_loading_rejects_empty_candidates_but_keeps_four_valid_gra
     assert graph_set.rejected_tile_counts == {"empty_nuclei": 2}
 
 
+def test_private_graph_loading_rejects_missing_candidate_json_but_keeps_four_valid_graphs(tmp_path):
+    json_dir = tmp_path / "json"
+    json_dir.mkdir()
+    mapping = {}
+    valid_stems = []
+    for tile_index in range(6):
+        stem = f"case-0-tile-{tile_index}"
+        mapping[stem] = ("private-case", 0)
+        if tile_index in (1, 4):
+            continue
+        valid_stems.append(stem)
+        nuclei = {
+            str(index): {
+                "centroid": [float(index), float(tile_index)],
+                "type": 1,
+                "probs": [0.0, 0.6, 0.1, 0.1, 0.1, 0.1],
+            }
+            for index in range(3)
+        }
+        (json_dir / f"{stem}.json").write_text(json.dumps({"nuc": nuclei}), encoding="utf-8")
+
+    graph_set = load_private_graphs(json_dir, mapping, tiles_per_case=4, max_nodes=512)
+
+    assert [graph.tile_key for graph in graph_set.graphs] == valid_stems
+    assert graph_set.rejected_tile_counts == {"missing_hovernet_json": 2}
+
+
 def test_private_graph_loading_fails_when_empty_candidates_leave_too_few_graphs(tmp_path):
     json_dir = tmp_path / "json"
     json_dir.mkdir()
